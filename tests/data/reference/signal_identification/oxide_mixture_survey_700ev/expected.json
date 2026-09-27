@@ -1,0 +1,39 @@
+{
+  "charging_off_forbidden_assignments": [
+    "Ti 2p3/2",
+    "Ti 2p1/2"
+  ],
+  "charging_on_required_assignments": [
+    "Ti 2p3/2",
+    "Ti 2p1/2",
+    "Ti 3p",
+    "Ti 3s"
+  ],
+  "charging_on_optional_assignments": [
+    "Ti 2s"
+  ],
+  "required_unresolved_labels": [
+    "Al 2p",
+    "Si 2p"
+  ],
+  "forbidden_component_labels": [
+    "Al 2p1/2",
+    "Al 2p3/2",
+    "Si 2p1/2",
+    "Si 2p3/2"
+  ],
+  "expected_ti_peak_positions_eV": {
+    "Ti 3p": 39.5,
+    "Ti 3s": 64.5,
+    "Ti 2p3/2": 461.0,
+    "Ti 2p1/2": 467.0
+  },
+  "position_tolerance_eV": 0.6,
+  "charging_on_auger_behavior": {
+    "element": "Ti",
+    "family": "LMM",
+    "pe_anchor_shift_eV": 7.1,
+    "shift_tolerance_eV": 0.3,
+    "search_region_broadened": true
+  }
+}

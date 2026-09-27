@@ -1,0 +1,12 @@
+{
+  "charging_shift_expected": false,
+  "required_unshifted_assignments": [
+    "Ir 4d5/2",
+    "Ir 4d3/2",
+    "C 1s"
+  ],
+  "forbidden_charging_elements": [
+    "Ir"
+  ],
+  "position_tolerance_eV": 1.0
+}

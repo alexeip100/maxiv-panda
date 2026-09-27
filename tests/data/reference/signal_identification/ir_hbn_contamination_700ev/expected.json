@@ -1,0 +1,9 @@
+{
+  "required_assignments": {
+    "C 1s": 284.0,
+    "O 1s": 531.0,
+    "N 1s": 397.0,
+    "B 1s": 189.0
+  },
+  "position_tolerance_eV": 1.0
+}

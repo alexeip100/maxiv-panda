@@ -1,0 +1,10 @@
+{
+  "photon_energy_eV": 1214.9980569453,
+  "energy_scale": "Binding",
+  "prominence_fraction": 0.005,
+  "min_distance_fraction": 0.012,
+  "tolerance_eV": 5.0,
+  "sample_mode": "Automatic (prefer solids)",
+  "small_charging_possible": true,
+  "elements": ["Cr", "Mn", "Fe", "Co", "Ni", "Si", "O", "C"]
+}

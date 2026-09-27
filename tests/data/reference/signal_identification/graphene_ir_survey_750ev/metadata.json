@@ -1,0 +1,16 @@
+{
+  "dataset_id": "graphene_ir_survey_750ev",
+  "description": "Survey XPS spectrum of monolayer graphene on Ir(111), used to ensure charging assistance does not override a satisfactory unshifted assignment.",
+  "source": "experimental",
+  "anonymized": true,
+  "file_format": "structured_txt",
+  "energy_scale": "binding_energy",
+  "energy_unit": "eV",
+  "photon_energy_eV": 750.0,
+  "energy_step_eV": 0.5,
+  "expected_elements": [
+    "Ir",
+    "C"
+  ],
+  "notes": "Metallic substrate; no charging correction should be inferred."
+}

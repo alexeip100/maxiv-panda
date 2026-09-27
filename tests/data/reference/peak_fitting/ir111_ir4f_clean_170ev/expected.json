@@ -1,0 +1,19 @@
+{
+  "peak_count": 4,
+  "background_type": "parabolic",
+  "positions_eV": {
+    "Bulk_7/2": 60.816,
+    "Surf_7/2": 60.302,
+    "Bulk_5/2": 63.82,
+    "Surf_5/2": 63.312
+  },
+  "position_tolerance_eV": 0.15,
+  "bulk_spin_orbit_splitting_eV": 3.004,
+  "surface_spin_orbit_splitting_eV": 3.01,
+  "surface_shift_7_2_eV": -0.514,
+  "surface_shift_5_2_eV": -0.508,
+  "relation_tolerance_eV": 0.1,
+  "parameter_relative_tolerance": 0.2,
+  "asymmetry_absolute_tolerance": 0.03,
+  "max_rms_residual": 600.0
+}

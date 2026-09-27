@@ -1,0 +1,9 @@
+{
+  "photon_energy_eV": 1214.9913405548,
+  "elements": ["C", "O", "Cr", "Mn", "Fe", "Co", "Ni"],
+  "prominence_fraction": 0.01,
+  "min_distance_fraction": 0.012,
+  "tolerance_eV": 5.0,
+  "small_charging_possible": false,
+  "sample_mode": "Automatic (prefer solids)"
+}

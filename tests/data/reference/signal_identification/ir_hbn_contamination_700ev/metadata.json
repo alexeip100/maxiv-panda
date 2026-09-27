@@ -1,0 +1,9 @@
+{
+  "photon_energy_eV": 700.0,
+  "elements": ["Ir", "N", "B", "O", "C"],
+  "prominence_fraction": 0.005,
+  "min_distance_fraction": 0.012,
+  "tolerance_eV": 5.0,
+  "sample_mode": "Automatic (prefer solids)",
+  "small_charging_possible": false
+}

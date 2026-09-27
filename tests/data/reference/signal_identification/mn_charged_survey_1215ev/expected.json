@@ -1,0 +1,17 @@
+{
+  "required_assignments": {
+    "Mn 2p3/2": 642.0,
+    "Mn 2p1/2": 654.0,
+    "Mn 3p": 49.0
+  },
+  "position_tolerance_eV": 1.0,
+  "expected_spin_orbit_splitting_eV": 11.1,
+  "splitting_tolerance_eV": 1.5,
+  "forbidden_weak_assignment_range_eV": [
+    648.5,
+    651.5
+  ],
+  "forbidden_assignments": [
+    "Fe 3p"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "dataset_id": "co_oxide_au_survey_1000ev",
+  "description": "Survey XPS spectrum of thin cobalt oxide on Au(111)",
+  "source": "experimental",
+  "energy_scale": "binding_energy",
+  "photon_energy_eV": 1000.0014421738,
+  "energy_step_eV": 0.5,
+  "expected_elements": ["Co", "O", "Au"],
+  "anonymized": true
+}

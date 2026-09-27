@@ -1,0 +1,19 @@
+{
+  "dataset_id": "ir111_ir4f_clean_170ev",
+  "description": "High-resolution Ir 4f spectrum from a clean Ir(111) surface.",
+  "source": "experimental",
+  "sample": "clean Ir(111)",
+  "file_format": "ibw",
+  "energy_scale": "binding_energy",
+  "energy_unit": "eV",
+  "photon_energy_eV": 170.0,
+  "pass_energy_eV": 10.0,
+  "energy_step_eV": 0.02,
+  "fit_region_eV": [
+    57.0,
+    68.0
+  ],
+  "fit_model": "Four asymmetric DS-like peaks with Gaussian broadening and parabolic background",
+  "reference_parameters_are": "final fitted values",
+  "notes": "Bulk and surface components for both Ir 4f spin-orbit branches."
+}

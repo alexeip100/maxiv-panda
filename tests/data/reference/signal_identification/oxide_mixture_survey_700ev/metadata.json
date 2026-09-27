@@ -1,0 +1,12 @@
+{
+  "dataset_id": "oxide_mixture_survey_700ev",
+  "description": "Survey XPS spectrum from a TiO2, SiO2 and Al2O3 mixture with a modest positive Ti shift.",
+  "source": "experimental_anonymized",
+  "energy_scale": "binding_energy",
+  "energy_unit": "eV",
+  "photon_energy_eV": 700.0,
+  "energy_step_eV": 0.5,
+  "pass_energy_eV": 200.0,
+  "expected_elements": ["Ti", "O", "Si", "Al"],
+  "notes": "Used to test anchor-first charging-assisted identification and unresolved Al/Si 2p family labels."
+}

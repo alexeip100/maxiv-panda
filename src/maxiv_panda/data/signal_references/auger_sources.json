@@ -1,0 +1,19 @@
+{
+  "format_version": "1.0",
+  "sources": [
+    {
+      "source_id": "xps_international_handbook",
+      "title": "XPS International Handbook of the Elements and Native Oxides",
+      "data_type": "experimental lookup-table positions",
+      "stored_energy": "kinetic energy",
+      "role": "primary"
+    },
+    {
+      "source_id": "eadl_2025",
+      "title": "Evaluated Atomic Data Library (EADL) 2025",
+      "distribution": "IAEA ENDF-6 EADL2025.ALL",
+      "data_type": "theoretical atomic-relaxation transition clusters",
+      "role": "supplementary"
+    }
+  ]
+}

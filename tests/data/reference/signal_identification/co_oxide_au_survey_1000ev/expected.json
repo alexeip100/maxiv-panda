@@ -1,0 +1,6 @@
+{
+  "required_auger_families": ["O KLL", "Co LMM"],
+  "forbidden_duplicate_families": true,
+  "co_lmm_supported_regions_be_eV": [[204, 238], [270, 310], [337, 366]],
+  "o_kll_required_feature_be_eV": [480, 492]
+}

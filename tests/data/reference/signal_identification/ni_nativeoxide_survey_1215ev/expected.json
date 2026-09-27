@@ -1,0 +1,10 @@
+{
+  "required_assignments": {
+    "Ni 2p3/2": 853.0,
+    "Ni 2p1/2": 870.0
+  },
+  "position_tolerance_eV": 1.0,
+  "ni_splitting_eV": 17.3,
+  "ni_splitting_tolerance_eV": 1.0,
+  "forbidden_ni_2p3_2_window_eV": [854.5, 856.5]
+}

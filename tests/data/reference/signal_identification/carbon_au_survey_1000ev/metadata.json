@@ -1,0 +1,13 @@
+{
+  "dataset_id": "carbon_au_survey_1000ev",
+  "description": "Survey XPS spectrum of carbon on Au(111), used to test resolved Au 4f identification on a coarse energy grid.",
+  "source": "experimental",
+  "anonymized": true,
+  "file_format": "structured_txt",
+  "energy_scale": "binding_energy",
+  "energy_unit": "eV",
+  "photon_energy_eV": 1000.0,
+  "energy_step_eV": 0.7,
+  "expected_elements": ["Au", "C"],
+  "charging_shift_expected": false
+}

@@ -1,0 +1,12 @@
+{
+  "required_assignments": {
+    "Mn 3p": 49.0,
+    "Ni 2p3/2": 858.5,
+    "Ni 2p1/2": 876.0
+  },
+  "position_tolerance_eV": 1.0,
+  "forbidden_at_49_eV": ["Fe 3p"],
+  "peak_49_window_eV": [48.0, 50.0],
+  "ni_splitting_eV": 17.3,
+  "ni_splitting_tolerance_eV": 1.0
+}

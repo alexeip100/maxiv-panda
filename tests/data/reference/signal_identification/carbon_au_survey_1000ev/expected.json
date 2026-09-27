@@ -1,0 +1,10 @@
+{
+  "required_assignments": {
+    "Au 4f7/2": 83.8,
+    "Au 4f5/2": 87.3
+  },
+  "position_tolerance_eV": 0.5,
+  "expected_spin_orbit_splitting_eV": 3.5,
+  "splitting_tolerance_eV": 0.5,
+  "forbidden_component_position_range_eV": [85.0, 86.5]
+}
