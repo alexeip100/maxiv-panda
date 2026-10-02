@@ -483,7 +483,8 @@ class UiProcessedDataMixin(UiMapControlsMixin):
         # full-map view.  Lines and ROI are analysis overlays selected
         # explicitly by the user, not sticky defaults from a previous map.
         was_active = bool(getattr(self, "_processed_map_was_active", False))
-        if map_active and not was_active:
+        restoring_session_view = bool(getattr(self, "_session_restoring_map_view", False))
+        if map_active and not was_active and not restoring_session_view:
             try:
                 self.plot_area.reset_map_palette_hint_visit()
             except Exception:
@@ -622,16 +623,14 @@ class UiProcessedDataMixin(UiMapControlsMixin):
 
     def _on_e_cal_toggle(self, checked: bool) -> None:
 
-        """Toggle visibility between raw and E-calibrated curves on the Processed tab."""
-        try:
-            # Only has an effect if we are currently on the Processed tab AND calibrated curves exist.
-            try:
-                cur_is_processed_tab = self._is_processed_tab_active()
-            except Exception:
-                cur_is_processed_tab = False
-            if not cur_is_processed_tab:
-                return
+        """Toggle visibility between raw and E-calibrated curves.
 
+        Do not gate the data-state change on the current Qt parent of the shared
+        plot/tree splitter.  That parent can be transiently different during
+        session restore/reparenting; the power button should still switch the
+        canonical raw/E-cal representation whenever calibrated curves exist.
+        """
+        try:
             if not self._has_any_processed_curves():
                 # Nothing to toggle yet.
                 return

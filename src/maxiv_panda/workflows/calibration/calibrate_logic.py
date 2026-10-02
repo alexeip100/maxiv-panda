@@ -567,46 +567,13 @@ def _fit_all_references_impl(
             else:
                 it3.setText(status_or_msg)
 
-        # Update plot for the last fit (diagnostic).
-        if ok and fr is not None and ax is not None and canvas is not None and _np is not None:
-            try:
-                ax.clear()
-                pl = payload_by_key.get(refk)
-                if pl is not None:
-                    x = _np.asarray(pl.x, dtype=float)
-                    y = _np.asarray(pl.y, dtype=float)
-                    o = _np.argsort(x)
-                    ax.plot(x[o], y[o], label="data")
-
-                fx = fr.get("fit_x") if isinstance(fr, dict) else None
-                fy = fr.get("fit_y") if isinstance(fr, dict) else None
-                if fx is not None and fy is not None:
-                    ax.plot(fx, fy, label="fit")
-
-                if isinstance(fr, dict) and fr.get("kind") == "fermi_edge":
-                    ax.axvline(fr.get("E_meas"), linestyle="--", label="EF")
-                    w0, w1 = fr.get("fit_window", (None, None))
-                    if w0 is not None:
-                        ax.axvline(w0, linestyle=":")
-                    if w1 is not None:
-                        ax.axvline(w1, linestyle=":")
-
-                ax.set_title(it0.text())
-                es = str(getattr(pl, "energy_scale", "Unknown")) if pl is not None else "Unknown"
-                ax.set_xlabel(normalize_energy_xlabel("Energy (eV)", es, unit="eV"))
-                ax.set_ylabel("Intensity")
-                try:
-                    ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0), useMathText=True)
-                except Exception:
-                    pass
-                ax.legend(loc="best")
-                canvas.draw_idle()
-            except Exception:
-                pass
+        # Do not redraw after every reference.  The dialog draws the complete
+        # overview once after all fits finish; per-reference redraws only slow the
+        # synchronous calibration pass and make the window appear unresponsive.
 
         # Keep UI responsive.
         try:
-            if QApplication is not None and (row % 3 == 0):
+            if QApplication is not None:
                 QApplication.processEvents()
         except Exception:
             pass

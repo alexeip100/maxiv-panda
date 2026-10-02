@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt
 from maxiv_panda.silent_message_box import SilentMessageBox as QMessageBox
 
 from .log_utils import log_noncritical_error
-from .workflows.normalization.logic import normalization_interval, mean_intensity_over_interval
+from .workflows.normalization.logic import normalization_interval, normalization_interval_if_reachable, mean_intensity_over_interval
 from .intensity_units import CPS, time_per_spectrum_channel, scale_payload
 
 
@@ -28,13 +28,35 @@ class ProcessedController:
         return False
 
     def update_selected_tree_visibility(self, show_processed: bool) -> None:
+        """Switch between raw and persistent E-calibrated representations.
+
+        Calibrated children identify their raw parent through ``source_key``.
+        Use that relationship explicitly rather than treating *all* raw and
+        processed items as two global buckets.  This keeps the switch robust
+        after session restore and also leaves uncalibrated raw curves visible
+        when only part of a selection has been calibrated.
+        """
         try:
+            processed_sources: set[str] = set()
             for key, it in list(self.app._selected_by_key.items()):
                 meta = it.data(0, self.app.ROLE_META)
-                is_processed = False
-                if isinstance(meta, dict):
-                    is_processed = bool(meta.get("processed", False))
-                it.setHidden(is_processed != show_processed)
+                if not isinstance(meta, dict) or not bool(meta.get("processed", False)):
+                    continue
+                source_key = meta.get("source_key")
+                if isinstance(source_key, str) and source_key:
+                    processed_sources.add(source_key)
+
+            for key, it in list(self.app._selected_by_key.items()):
+                meta = it.data(0, self.app.ROLE_META)
+                is_processed = isinstance(meta, dict) and bool(meta.get("processed", False))
+                if is_processed:
+                    # Persistent E-cal children are visible only in E-cal view.
+                    it.setHidden(not bool(show_processed))
+                else:
+                    # A raw source with an E-cal counterpart is replaced by that
+                    # counterpart in E-cal view.  Raw curves without a processed
+                    # counterpart remain visible in both views.
+                    it.setHidden(bool(show_processed) and str(key) in processed_sources)
 
             for (_fk, _rn), parent in list(self.app._selected_region_items.items()):
                 any_visible = False
@@ -162,10 +184,12 @@ class ProcessedController:
             xs = x_i[order]
             ys = y_i[order]
             e0f = float(e0)
-            if not (float(xs[0]) <= e0f <= float(xs[-1])):
-                return p
             span_percent = float(getattr(self.app, "_norm_span_percent", 1.0))
-            interval = normalization_interval(float(xs[0]), float(xs[-1]), e0f, span_percent)
+            interval = normalization_interval_if_reachable(
+                float(xs[0]), float(xs[-1]), e0f, span_percent
+            )
+            if interval is None:
+                return p
             y0 = mean_intensity_over_interval(xs, ys, *interval)
             if not np.isfinite(y0) or abs(float(y0)) < 1e-15:
                 return p
@@ -237,8 +261,29 @@ class ProcessedController:
         if e0 is None or not payloads:
             return payloads, False
 
-        e0f = float(e0)
         span_percent = float(getattr(self.app, "_norm_span_percent", 1.0))
+
+        # The automatic normalization point is tied to the common edge of the
+        # *currently displayed* representations.  Energy calibration can shift
+        # otherwise identical spectra by slightly different amounts, so a value
+        # that was the common raw edge may sit just outside one E-calibrated
+        # curve.  Keep automatic defaults following the active raw/E-cal view.
+        if not bool(getattr(self.app, "_norm_to1_user_override", False)):
+            e_auto = self._common_overlap_edge(payloads)
+            if e_auto is not None:
+                e0 = float(e_auto)
+                self.app._norm_to1_energy = float(e_auto)
+                self.app._norm_to1_auto_default = float(e_auto)
+                try:
+                    sb = getattr(self.app, "sb_norm_e_proc", None)
+                    if sb is not None and abs(float(sb.value()) - float(e_auto)) > 1e-12:
+                        sb.blockSignals(True)
+                        sb.setValue(float(e_auto))
+                        sb.blockSignals(False)
+                except Exception as exc:
+                    log_noncritical_error("tracking automatic normalization energy", exc)
+
+        e0f = float(e0)
         self._update_span_ev_label(payloads)
         scaled_payloads: list[Any] = []
         used_intervals: list[tuple[float, float]] = []
@@ -256,10 +301,12 @@ class ProcessedController:
             y_i = y[order]
             xmin = float(x_i[0])
             xmax = float(x_i[-1])
-            if not (xmin <= e0f <= xmax):
+            interval = normalization_interval_if_reachable(
+                xmin, xmax, e0f, span_percent
+            )
+            if interval is None:
                 scaled_payloads = []
                 break
-            interval = normalization_interval(xmin, xmax, e0f, span_percent)
             y0 = mean_intensity_over_interval(x_i, y_i, *interval)
             if not np.isfinite(y0) or abs(y0) < 1e-15:
                 scaled_payloads = []

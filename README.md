@@ -29,44 +29,51 @@ All supported formats enter the same PANDA Raw Data workflow after loading.
 
 ## Installation
 
-A dedicated **conda environment** is recommended for PANDA. The following setup uses Python 3.14.
+A dedicated **conda environment** is recommended. PANDA 0.12 targets **Python 3.14** and **PyQt6**.
 
-Create and activate the environment:
+Create the environment once. The command below installs the important Qt/scientific dependencies explicitly from **conda-forge**:
 
 ```bash
-conda create -n pes_processor python=3.14
+conda create -n pes_processor -c conda-forge --strict-channel-priority python=3.14 pyqt6 matplotlib numpy scipy igor2 lmfit h5py pip
+```
+
+Activate the environment:
+
+```bash
 conda activate pes_processor
 ```
 
-Install the main scientific and graphical dependencies with conda:
+Then choose **one** installation method.
+
+### From a GitHub release wheel (recommended for most users)
+
+1. Open the PANDA repository on GitHub.
+2. Open **Releases** and choose the **Latest** release.
+3. Scroll to the **bottom of the release page** and expand **Assets** if necessary.
+4. Download the file ending in **`.whl`**.
+5. Open a terminal in the folder containing the downloaded wheel and install it:
 
 ```bash
-conda install -y PyQt6 matplotlib numpy scipy igor2 lmfit h5py
+pip install --no-deps maxiv_panda-*.whl
 ```
 
-Download the PANDA wheel (`.whl`) from the GitHub release and install it with pip without replacing the packages already installed by conda:
+### From the source folder
+
+Open a terminal in the `maxiv-panda` folder and run:
 
 ```bash
-python -m pip install --no-deps "<path-to-file>\maxiv_panda-0.12.0-py3-none-any.whl"
+pip install . --no-deps
 ```
 
 ### Development installation
 
-If you are working from a cloned or downloaded source tree, activate the same environment, open a terminal in the PANDA project directory, and install PANDA in editable mode:
+If you are modifying the source code, install it in editable mode instead:
 
 ```bash
-conda activate pes_processor
-python -m pip install --no-deps -e .
+pip install -e . --no-deps
 ```
 
-### Updating PANDA
-
-To update PANDA later in the same environment, download the newer release and run:
-
-```bash
-conda activate pes_processor
-python -m pip install --no-deps --upgrade "<path-to-new-release>"
-```
+> Use the conda-forge package **`pyqt6`**, not `pyqt` (which installs PyQt5). Keeping Qt and the scientific dependencies under conda and using `--no-deps` for PANDA avoids mixed pip/conda Qt installations.
 
 ## Starting PANDA
 
@@ -92,7 +99,7 @@ python -m maxiv_panda
 
 1. Start PANDA.
 2. **Drag and drop** a supported TXT, IBW, or XY file onto the **Loaded files** tree. This is the quickest way to load data.
-3. Alternatively, use **Load** and choose the corresponding file format.
+3. Alternatively, use **File → Load data...** and choose the corresponding file format.
 4. Select spectra or an **Average** / **Iterations** group in the Loaded files tree.
 5. Use the Raw, Processed, Plotted, fitting, and reference tools as needed.
 

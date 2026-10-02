@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtGui import QColor, QBrush, QFont, QKeySequence, QTextDocument, QShortcut
 from PyQt6.QtWidgets import (
+    QFileDialog,
     QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QSizePolicy, QSpinBox, QSplitter, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -17,11 +19,46 @@ from .icon import application_icon
 from .utils.help_text import get_usage_html
 from .widgets.help_browser import HelpBrowser
 from .widgets.appearance_settings_dialog import SettingsDialog
-from .ui_style import current_ui_configuration, apply_ui_configuration_live, apply_dialog_metrics, apply_control_metrics
+from .ui_style import (
+    SETTINGS_APPLICATION, SETTINGS_ORGANIZATION,
+    current_ui_configuration, apply_ui_configuration_live,
+    apply_dialog_metrics, apply_control_metrics,
+)
 
 
 class UiActionsMixin:
     """File, help, and top-level application actions for ``MainWindow``."""
+
+    _SESSION_DIRECTORY_SETTINGS_KEY = "files/last_session_directory"
+
+    def _remembered_session_directory(self) -> Path:
+        """Return the last session folder, including across application restarts."""
+        current = getattr(self, "_session_directory", None)
+        if current:
+            return Path(current)
+        try:
+            value = QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION).value(
+                self._SESSION_DIRECTORY_SETTINGS_KEY, ""
+            )
+            if value:
+                candidate = Path(str(value))
+                if candidate.exists() and candidate.is_dir():
+                    self._session_directory = candidate
+                    return candidate
+        except Exception:
+            pass
+        return Path(getattr(self, "_current_data_directory", Path.cwd()))
+
+    def _set_session_directory(self, directory: str | Path) -> None:
+        """Remember the session folder for this run and future PANDA launches."""
+        directory = Path(directory)
+        self._session_directory = directory
+        try:
+            settings = QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+            settings.setValue(self._SESSION_DIRECTORY_SETTINGS_KEY, str(directory))
+            settings.sync()
+        except Exception:
+            pass
 
     def _update_load_menu_state(self) -> None:
         """Enable/disable Load submenu entries based on loaded file kind."""
@@ -74,6 +111,18 @@ class UiActionsMixin:
         """Close all loaded files (clear tree and plot)."""
 
         self._reset_signal_identification()
+        # A top-level workspace reset also clears fitting-session state.
+        for dlg in list(getattr(self, "_peak_fit_dialogs", []) or []):
+            try:
+                dlg.close()
+            except Exception:
+                pass
+        for dlg in list(getattr(self, "_batch_fit_dialogs", []) or []):
+            try:
+                dlg.close()
+            except Exception:
+                pass
+        self._fit_session_registry = {"single": {}, "batch": {}}
         reset_map_norm = getattr(self, "_reset_map_normalization_context", None)
         if callable(reset_map_norm):
             reset_map_norm(close_dialog=True)
@@ -122,6 +171,17 @@ class UiActionsMixin:
         """
 
         self._reset_signal_identification()
+        for dlg in list(getattr(self, "_peak_fit_dialogs", []) or []):
+            try:
+                dlg.close()
+            except Exception:
+                pass
+        for dlg in list(getattr(self, "_batch_fit_dialogs", []) or []):
+            try:
+                dlg.close()
+            except Exception:
+                pass
+        self._fit_session_registry = {"single": {}, "batch": {}}
         reset_map_norm = getattr(self, "_reset_map_normalization_context", None)
         if callable(reset_map_norm):
             reset_map_norm(close_dialog=True)
@@ -174,8 +234,994 @@ class UiActionsMixin:
             except Exception:
                 pass
 
+        # Files remain loaded after Clear all, so rebuild the available region
+        # names instead of leaving the selector in the disabled state that can
+        # be inherited from a just-restored session.
+        refresh_regions = getattr(self, "_refresh_all_region_combo", None)
+        if callable(refresh_regions):
+            refresh_regions()
+
         self._return_to_raw_data()
 
+
+
+    def _session_sources(self):
+        """Return source descriptors for the minimal .panda session manifest."""
+        from .session_io import SessionSource
+
+        sources = []
+        kind = str(getattr(self, "_loaded_kind", "") or "")
+        for item in self._iter_loaded_file_items() or ():
+            snapshot = self._snapshot_from_file_item(item)
+            if snapshot is None:
+                continue
+            sources.append(
+                SessionSource(
+                    kind=kind,
+                    snapshot_id=snapshot.snapshot_id,
+                    canonical_path=snapshot.canonical_path,
+                    physical_path=snapshot.physical_path,
+                    file_name=snapshot.file_name,
+                    source_label=snapshot.source_label,
+                    loaded_at=snapshot.loaded_at,
+                    file_mtime_ns=snapshot.file_mtime_ns,
+                    file_size=snapshot.file_size,
+                )
+            )
+        return sources
+
+    def _session_processed_state(self):
+        """Return build-3 Processed Data session descriptors and arrays."""
+        from .session_io import SessionProcessedCurve, SessionSelection
+
+        selected_raw = []
+        processed = []
+        arrays = {}
+        for key, item in list(getattr(self, "_selected_by_key", {}).items()):
+            try:
+                meta = item.data(0, self.ROLE_META)
+                meta = dict(meta) if isinstance(meta, dict) else {}
+                checked = item.checkState(0) == Qt.CheckState.Checked
+                if not bool(meta.get("processed", False)):
+                    selected_raw.append(SessionSelection(key=str(key), checked=checked))
+                    continue
+                payload = item.data(0, self.ROLE_PAYLOAD)
+                if payload is None:
+                    continue
+                parent = item.parent()
+                parent_file = ""
+                if parent is not None:
+                    try:
+                        region_key = self._selected_tree_manager._region_key_for_parent(parent)
+                    except Exception:
+                        region_key = None
+                    if isinstance(region_key, tuple) and region_key:
+                        parent_file = str(region_key[0])
+                    else:
+                        parent_file = str(parent.data(0, self.ROLE_FILE) or "")
+                source_file = str(item.data(0, self.ROLE_FILE) or "")
+                region = str(item.data(0, self.ROLE_REGION) or "")
+                member = f"processed/{str(key).replace('/', '_').replace('\\', '_')}.npz"
+                processed.append(SessionProcessedCurve(
+                    key=str(key), display=str(item.text(0)), parent_file=parent_file,
+                    source_file=source_file, region_name=region, array_member=member,
+                    title=str(getattr(payload, "title", item.text(0))),
+                    xlabel=str(getattr(payload, "xlabel", "x")), ylabel=str(getattr(payload, "ylabel", "Intensity")),
+                    energy_scale=str(getattr(payload, "energy_scale", "Unknown")),
+                    metadata=dict(getattr(payload, "metadata", {}) or {}), item_meta=meta, checked=checked,
+                ))
+                arrays[member] = (getattr(payload, "x", []), getattr(payload, "y", []))
+            except Exception:
+                continue
+
+        map_states = []
+        for (file_name, region_name), btn in list(getattr(self, "_region_map_buttons", {}).items()):
+            try:
+                map_states.append({"file": file_name, "region": region_name, "checked": bool(btn.isChecked())})
+            except Exception:
+                pass
+        view = {
+            "intensity_mode": str(getattr(self, "_processed_intensity_mode", "counts")),
+            "ecal_enabled": bool(getattr(getattr(self, "btn_e_cal_toggle", None), "isChecked", lambda: False)()),
+            "norm_enabled": bool(getattr(self, "_norm_to1_enabled", False)),
+            "norm_energy": getattr(self, "_norm_to1_energy", None),
+            "norm_span_percent": float(getattr(self, "_norm_span_percent", 1.0)),
+            "norm_user_override": bool(getattr(self, "_norm_to1_user_override", False)),
+            "region_cmap": [{"file": k[0], "region": k[1], "cmap": v} for k, v in getattr(self, "_region_cmap", {}).items()],
+            "map_states": map_states,
+            "all_in_region_enabled": bool(getattr(getattr(self, "cb_all_in_region", None), "isChecked", lambda: False)()),
+            "all_in_region_target": str(getattr(self, "_selected_target_region", lambda: "")() or ""),
+            "map_view_mode": (
+                "lines" if bool(getattr(getattr(self, "rb_map_lines", None), "isChecked", lambda: False)()) else
+                "roi" if bool(getattr(getattr(self, "rb_map_roi", None), "isChecked", lambda: False)()) else
+                "simple"
+            ),
+            "map_bin_size": int(getattr(getattr(self, "sb_map_bin_size", None), "value", lambda: 1)()),
+            "map_h_thickness": int(getattr(getattr(self, "sb_map_h_thickness", None), "value", lambda: 1)()),
+            "map_v_thickness": int(getattr(getattr(self, "sb_map_v_thickness", None), "value", lambda: 1)()),
+            "map_roi_spec": dict(getattr(self, "_map_roi_spec", None) or {}),
+            "map_right_y_mode": str(getattr(self, "_map_right_y_mode", "iteration") or "iteration"),
+            # Map normalization is independent of the 1D Processed-data
+            # normalization above.  Preserve the actual 2D workspace state,
+            # including the orange normalization band shown in map views.
+            "map_norm_mode": str(getattr(self, "_map_norm_mode", None) or getattr(getattr(self, "cb_map_normalization", None), "currentData", lambda: "none")() or "none"),
+            "map_norm_context_key": getattr(self, "_map_norm_context_key", None),
+            "map_norm_be": getattr(self, "_map_norm_be", None),
+            "map_norm_width_ev": getattr(self, "_map_norm_width_ev", None),
+            "map_norm_area_low": getattr(self, "_map_norm_area_low", None),
+            "map_norm_area_high": getattr(self, "_map_norm_area_high", None),
+            "map_norm_active_interval": list(getattr(self, "_map_norm_active_interval", None) or []),
+            "map_norm_show_region": bool(getattr(self, "_map_norm_show_region", True)),
+            "map_lines_positions": [
+                {"title": str(k[0]), "xlabel": str(k[1]), "x": float(v.get("x", 0.0)), "y": float(v.get("y", 0.0))}
+                for k, v in dict(getattr(self, "_map_lines_position_memory", {}) or {}).items()
+                if isinstance(k, tuple) and len(k) == 2 and isinstance(v, dict)
+            ],
+        }
+        return selected_raw, processed, arrays, view
+
+    def _session_fitting_state(self) -> dict[str, Any]:
+        """Capture fitting state, including still-open single-fit editors."""
+        registry = getattr(self, "_fit_session_registry", None)
+        if not isinstance(registry, dict):
+            registry = {"single": {}, "batch": {}}
+            self._fit_session_registry = registry
+        # Synchronize live fitting windows immediately before writing the session
+        # so edits made since the dialogs were opened are not missed.
+        single = registry.setdefault("single", {})
+        for dlg in list(getattr(self, "_peak_fit_dialogs", []) or []):
+            try:
+                state = dlg._capture_session_fit_state()
+                keys = state.get("curve_keys") or []
+                signature = "||".join(sorted(str(k) for k in keys))
+                if signature:
+                    single[signature] = state
+            except Exception:
+                continue
+        batch = registry.setdefault("batch", {})
+        for dlg in list(getattr(self, "_batch_fit_dialogs", []) or []):
+            try:
+                state = dlg._capture_session_batch_state()
+                keys = state.get("curve_keys") or []
+                signature = "||".join(sorted(str(k) for k in keys))
+                if signature:
+                    batch[signature] = state
+            except Exception:
+                continue
+        return registry
+
+    def _session_signal_identification_state(self) -> dict[str, Any]:
+        """Capture signal-identification controls and reusable settings.
+
+        Plot artists/assignments are intentionally not serialized: they are
+        deterministic products of the selected spectrum and settings and are
+        rebuilt on session restore.
+        """
+        controller = getattr(self, "_signal_identification", None)
+        settings = getattr(controller, "settings", None) if controller is not None else None
+        if settings is None:
+            return {}
+        current_key = ""
+        try:
+            current = controller.current_single_curve()
+            if current is not None:
+                current_key = str(current[2] or "")
+        except Exception:
+            pass
+        return {
+            "checked": bool(getattr(getattr(self, "cb_identify_signals", None), "isChecked", lambda: False)()),
+            "show_auger": bool(getattr(getattr(self, "cb_show_auger", None), "isChecked", lambda: True)()),
+            "spectrum_key": current_key,
+            "settings": {
+                "photon_energy": settings.photon_energy,
+                "tolerance_eV": float(settings.tolerance_eV),
+                "prominence_fraction": float(settings.prominence_fraction),
+                "include_auger": bool(settings.include_auger),
+                "include_second_order": bool(settings.include_second_order),
+                "small_charging_possible": bool(settings.small_charging_possible),
+                "elements": sorted(str(v) for v in (settings.elements or set())),
+                "sample_mode": str(settings.sample_mode),
+                "valence_band_cutoff_eV": float(settings.valence_band_cutoff_eV),
+            },
+        }
+
+    def _restore_signal_identification_state(self, manifest) -> list[str]:
+        """Restore signal-identification settings and regenerate annotations."""
+        state = dict(getattr(manifest, "signal_identification_state", {}) or {})
+        if not state:
+            return []
+        controller = getattr(self, "_signal_identification", None)
+        if controller is None:
+            return ["Signal-identification state is present but cannot be restored by this PANDA build."]
+        try:
+            from .signal_identification.dialogs import IdentificationSettings
+            raw = dict(state.get("settings") or {})
+            defaults = IdentificationSettings()
+            photon = raw.get("photon_energy", defaults.photon_energy)
+            controller.settings = IdentificationSettings(
+                photon_energy=None if photon is None else float(photon),
+                tolerance_eV=float(raw.get("tolerance_eV", defaults.tolerance_eV)),
+                prominence_fraction=float(raw.get("prominence_fraction", defaults.prominence_fraction)),
+                include_auger=bool(raw.get("include_auger", defaults.include_auger)),
+                include_second_order=bool(raw.get("include_second_order", defaults.include_second_order)),
+                small_charging_possible=bool(raw.get("small_charging_possible", defaults.small_charging_possible)),
+                elements=set(str(v) for v in (raw.get("elements") or [])),
+                sample_mode=str(raw.get("sample_mode", defaults.sample_mode)),
+                valence_band_cutoff_eV=float(raw.get("valence_band_cutoff_eV", defaults.valence_band_cutoff_eV)),
+            )
+            # Preserve a manually edited photon energy when the restored active
+            # spectrum is the same one that owned it when the session was saved.
+            controller._photon_spectrum_key = str(state.get("spectrum_key") or "") or None
+
+            show_auger = getattr(self, "cb_show_auger", None)
+            if show_auger is not None:
+                show_auger.blockSignals(True)
+                try:
+                    show_auger.setChecked(bool(state.get("show_auger", True)))
+                finally:
+                    show_auger.blockSignals(False)
+
+            controller.refresh_availability()
+            identify = getattr(self, "cb_identify_signals", None)
+            wanted = bool(state.get("checked", False))
+            can_identify = controller.current_single_curve() is not None
+            if identify is not None:
+                identify.blockSignals(True)
+                try:
+                    identify.setChecked(bool(wanted and can_identify))
+                finally:
+                    identify.blockSignals(False)
+            if wanted and can_identify:
+                controller.identify(show_messages=False)
+            else:
+                controller.clear()
+            if show_auger is not None:
+                show_auger.setEnabled(bool(wanted and can_identify))
+            try:
+                self._update_plot_from_selected()
+            except Exception:
+                pass
+            return []
+        except Exception as exc:
+            return [f"Could not restore signal identification: {exc}"]
+
+    def _session_plotted_state(self) -> tuple[dict[str, Any], dict[str, tuple[Any, Any]]]:
+        """Capture Plotted Data as independent numerical snapshots."""
+        panel = getattr(self, "plotted_data_panel", None)
+        if panel is None or not hasattr(panel, "capture_session_state"):
+            return {}, {}
+        try:
+            return panel.capture_session_state()
+        except Exception:
+            return {}, {}
+
+    def _session_workspace_state(self) -> tuple[dict[str, Any], dict[str, tuple[Any, Any]]]:
+        """Capture active panel and modeless analysis-window state."""
+        state: dict[str, Any] = {}
+        arrays: dict[str, tuple[Any, Any]] = {}
+        try:
+            idx = int(self.tabs.currentIndex())
+            state["active_tab_index"] = idx
+            state["active_tab_text"] = str(self.tabs.tabText(idx))
+        except Exception:
+            pass
+        try:
+            g = self.geometry()
+            state["main_geometry"] = [int(g.x()), int(g.y()), int(g.width()), int(g.height())]
+            state["main_maximized"] = bool(self.isMaximized())
+        except Exception:
+            pass
+        try:
+            state["data_splitter_sizes"] = [int(v) for v in self.data_view_splitter.sizes()]
+        except Exception:
+            pass
+
+        fit_windows = []
+        for dlg in list(getattr(self, "_peak_fit_dialogs", []) or []):
+            try:
+                signature = str(getattr(dlg, "_session_signature", "") or "")
+                if not signature:
+                    fit_state = dlg._capture_session_fit_state()
+                    signature = "||".join(sorted(str(k) for k in (fit_state.get("curve_keys") or [])))
+                if not signature:
+                    continue
+                g = dlg.geometry()
+                fit_windows.append({
+                    "signature": signature,
+                    "visible": bool(dlg.isVisible()),
+                    "geometry": [int(g.x()), int(g.y()), int(g.width()), int(g.height())],
+                    "maximized": bool(dlg.isMaximized()),
+                })
+            except Exception:
+                continue
+        state["fit_windows"] = fit_windows
+
+        batch_windows = []
+        for dlg in list(getattr(self, "_batch_fit_dialogs", []) or []):
+            try:
+                signature = str(getattr(dlg, "_session_signature", "") or "")
+                if not signature:
+                    batch_state = dlg._capture_session_batch_state()
+                    signature = "||".join(sorted(str(k) for k in (batch_state.get("curve_keys") or [])))
+                if not signature:
+                    continue
+                g = dlg.geometry()
+                batch_windows.append({
+                    "signature": signature,
+                    "visible": bool(dlg.isVisible()),
+                    "geometry": [int(g.x()), int(g.y()), int(g.width()), int(g.height())],
+                    "maximized": bool(dlg.isMaximized()),
+                })
+            except Exception:
+                continue
+        state["batch_windows"] = batch_windows
+
+        trace = getattr(self, "_trace_comparison_window", None)
+        if trace is not None and hasattr(trace, "capture_session_state"):
+            try:
+                trace_state, trace_arrays = trace.capture_session_state()
+                state["trace_window"] = trace_state
+                arrays.update(trace_arrays)
+            except Exception:
+                pass
+        return state, arrays
+
+    def _restore_plotted_workspace(self, path: Path, manifest) -> list[str]:
+        """Restore Plotted Data after Raw/Processed workspace reconstruction."""
+        state = dict(getattr(manifest, "plotted_state", {}) or {})
+        if not state:
+            return []
+        panel = getattr(self, "plotted_data_panel", None)
+        if panel is None or not hasattr(panel, "restore_session_state"):
+            return ["Plotted Data state is present but this PANDA build cannot restore it."]
+        from .session_io import load_array_pair
+        return panel.restore_session_state(state, lambda member: load_array_pair(path, member))
+
+    def _iter_selected_curve_items(self):
+        tree = getattr(self, "selected_tree", None)
+        if tree is None:
+            return
+        root = tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            parent = root.child(i)
+            for j in range(parent.childCount()):
+                leaf = parent.child(j)
+                if leaf is not None:
+                    yield leaf
+
+    def _restore_open_fit_window(self, entry: dict[str, Any]) -> None:
+        """Reopen one modeless fit editor without changing persistent selection."""
+        signature = str(entry.get("signature") or "")
+        keys = {k for k in signature.split("||") if k}
+        if not keys:
+            return
+        saved_checks: dict[str, Qt.CheckState] = {}
+        tree = getattr(self, "selected_tree", None)
+        if tree is None:
+            return
+        tree.blockSignals(True)
+        try:
+            for leaf in self._iter_selected_curve_items() or ():
+                kd = leaf.data(0, self.ROLE_KEY)
+                key = kd[0] if isinstance(kd, tuple) and kd else kd
+                if not isinstance(key, str) or not key:
+                    continue
+                saved_checks[key] = leaf.checkState(0)
+                leaf.setCheckState(0, Qt.CheckState.Checked if key in keys else Qt.CheckState.Unchecked)
+        finally:
+            tree.blockSignals(False)
+        try:
+            # Fit selected is a Processed Data workflow.  Make the saved raw/E-cal
+            # representation visible while constructing the dialog, then the caller
+            # restores the saved main tab after all auxiliary windows exist.
+            try:
+                self.tabs.setCurrentIndex(1)
+            except Exception:
+                pass
+            try:
+                enabled = bool(getattr(getattr(self, "btn_e_cal_toggle", None), "isChecked", lambda: False)())
+                self._update_selected_tree_visibility(show_processed=enabled)
+            except Exception:
+                pass
+            from .workflows.peakfit.fit_dialog import open_fit_corelevel_dialog
+            before = len(list(getattr(self, "_peak_fit_dialogs", []) or []))
+            open_fit_corelevel_dialog(self)
+            dialogs = list(getattr(self, "_peak_fit_dialogs", []) or [])
+            if len(dialogs) > before:
+                dlg = dialogs[-1]
+                geometry = entry.get("geometry")
+                if isinstance(geometry, (list, tuple)) and len(geometry) == 4:
+                    try: dlg.setGeometry(*(int(v) for v in geometry))
+                    except Exception: pass
+                if bool(entry.get("maximized", False)):
+                    try: dlg.showMaximized()
+                    except Exception: pass
+        finally:
+            tree.blockSignals(True)
+            try:
+                for leaf in self._iter_selected_curve_items() or ():
+                    kd = leaf.data(0, self.ROLE_KEY)
+                    key = kd[0] if isinstance(kd, tuple) and kd else kd
+                    if isinstance(key, str) and key in saved_checks:
+                        leaf.setCheckState(0, saved_checks[key])
+            finally:
+                tree.blockSignals(False)
+
+    def _restore_open_batch_window(self, entry: dict[str, Any]) -> None:
+        """Reopen one modeless batch workspace without changing main selection."""
+        signature = str(entry.get("signature") or "")
+        saved_batch = {}
+        try:
+            registry = getattr(self, "_fit_session_registry", {}) or {}
+            saved_batch = (registry.get("batch", {}) or {}).get(signature) or {}
+        except Exception:
+            saved_batch = {}
+        # The sorted signature is an identity key only.  Batch fitting is a
+        # sequence workflow, so reconstruct curves in their saved sequence order.
+        keys = [str(k) for k in (saved_batch.get("curve_keys") or []) if str(k)]
+        if not keys:
+            keys = [k for k in signature.split("||") if k]
+        if not keys:
+            return
+        # Rebuild payloads from the restored main Selected-curves tree.
+        # MainWindow does not itself guarantee a build_payload_by_key() helper;
+        # use the same collector as the fitting workflow so session reopening
+        # works with ordinary restored raw curves as well as test hosts.
+        try:
+            from .workflows.peakfit.fit_dialog import _build_payload_by_key
+            payload_by_key = _build_payload_by_key(self)
+        except Exception:
+            payload_by_key = {}
+        items = []
+        for key in keys:
+            payload = payload_by_key.get(key)
+            if payload is None:
+                continue
+            items.append((key, payload, str(getattr(payload, "title", key))))
+        if len(items) != len(keys):
+            missing = [key for key in keys if key not in payload_by_key]
+            raise ValueError("missing restored curve(s): " + ", ".join(missing[:4]))
+
+        from .workflows.peakfit.batch_dialog import open_batch_fit_dialog
+        before = len(list(getattr(self, "_batch_fit_dialogs", []) or []))
+        open_batch_fit_dialog(self, items)
+        dialogs = list(getattr(self, "_batch_fit_dialogs", []) or [])
+        if len(dialogs) <= before:
+            return
+        dlg = dialogs[-1]
+        geometry = entry.get("geometry")
+        if isinstance(geometry, (list, tuple)) and len(geometry) == 4:
+            try:
+                dlg.setGeometry(*(int(v) for v in geometry))
+            except Exception:
+                pass
+        if bool(entry.get("maximized", False)):
+            try:
+                dlg.showMaximized()
+            except Exception:
+                pass
+
+    def _restore_workspace_state(self, path: Path, manifest) -> list[str]:
+        """Restore main-panel choice and auxiliary windows after data/models exist."""
+        state = dict(getattr(manifest, "workspace_state", {}) or {})
+        if not state:
+            return []
+        problems: list[str] = []
+        try:
+            sizes = state.get("data_splitter_sizes")
+            if isinstance(sizes, (list, tuple)) and len(sizes) == 2:
+                self.data_view_splitter.setSizes([int(v) for v in sizes])
+        except Exception as exc:
+            problems.append(f"Could not restore main workspace splitter: {exc}")
+        try:
+            g = state.get("main_geometry")
+            if isinstance(g, (list, tuple)) and len(g) == 4:
+                self.setGeometry(*(int(v) for v in g))
+            if bool(state.get("main_maximized", False)):
+                self.showMaximized()
+        except Exception:
+            pass
+
+        trace_state = state.get("trace_window")
+        if isinstance(trace_state, dict):
+            try:
+                from .session_io import load_array_pair
+                window = self._trace_comparison_window_instance()
+                problems.extend(window.restore_session_state(trace_state, lambda member: load_array_pair(path, member)))
+            except Exception as exc:
+                problems.append(f"Could not restore Trace window: {exc}")
+
+        for entry in list(state.get("fit_windows") or []):
+            if not isinstance(entry, dict) or not bool(entry.get("visible", True)):
+                continue
+            try:
+                self._restore_open_fit_window(entry)
+            except Exception as exc:
+                problems.append(f"Could not reopen fit window: {exc}")
+
+        for entry in list(state.get("batch_windows") or []):
+            if not isinstance(entry, dict) or not bool(entry.get("visible", True)):
+                continue
+            try:
+                self._restore_open_batch_window(entry)
+            except Exception as exc:
+                problems.append(f"Could not reopen batch fitting window: {exc}")
+
+        # Restore the main panel last, after helper windows have been rebuilt.
+        try:
+            wanted_text = str(state.get("active_tab_text") or "")
+            target = -1
+            if wanted_text:
+                for idx in range(self.tabs.count()):
+                    if str(self.tabs.tabText(idx)) == wanted_text:
+                        target = idx; break
+            if target < 0:
+                target = int(state.get("active_tab_index", 0))
+            target = max(0, min(self.tabs.count() - 1, target))
+            self.tabs.setCurrentIndex(target)
+        except Exception as exc:
+            problems.append(f"Could not restore active main panel: {exc}")
+        return problems
+
+    def _save_session(self) -> None:
+        """Save source references and build-3 Processed Data workspace."""
+        from .session_io import make_manifest, save_session_file
+
+        start_dir = str(self._remembered_session_directory())
+        path, _ = QFileDialog.getSaveFileName(self, "Save PANDA session", str(Path(start_dir) / "session.panda"),
+                                               "PANDA session (*.panda);;All files (*.*)")
+        if not path:
+            return
+        target = Path(path)
+        if target.suffix.lower() != ".panda":
+            target = target.with_suffix(".panda")
+        try:
+            raw, processed, arrays, view = self._session_processed_state()
+            plotted_state, plotted_arrays = self._session_plotted_state()
+            workspace_state, workspace_arrays = self._session_workspace_state()
+            arrays.update(plotted_arrays); arrays.update(workspace_arrays)
+            manifest = make_manifest(panda_version=__version__, sources=self._session_sources(),
+                                     selected_raw=raw, processed_curves=processed, processed_view=view,
+                                     fitting_state=self._session_fitting_state(), plotted_state=plotted_state,
+                                     workspace_state=workspace_state,
+                                     signal_identification_state=self._session_signal_identification_state())
+            save_session_file(target, manifest, processed_arrays=arrays)
+        except Exception as exc:
+            QMessageBox.critical(self, "Save session failed", f"Could not save session:\n\n{exc}")
+            return
+        self._set_session_directory(target.parent)
+
+    def _source_snapshot_from_session(self, source):
+        from .source_snapshots import SourceSnapshot
+        return SourceSnapshot(snapshot_id=source.snapshot_id, canonical_path=source.canonical_path,
+                              physical_path=source.physical_path, file_name=source.file_name,
+                              source_label=source.source_label, loaded_at=source.loaded_at,
+                              file_mtime_ns=source.file_mtime_ns, file_size=source.file_size)
+
+    def _restore_session_sources(self, manifest) -> tuple[int, list[str]]:
+        restored = 0
+        problems = []
+        kinds = {str(src.kind) for src in manifest.sources if str(src.kind)}
+        if len(kinds) > 1:
+            return 0, ["This session contains mixed source formats, which this PANDA build cannot restore."]
+        for source in manifest.sources:
+            kind = str(source.kind or "")
+            if kind not in {"TXT", "IBW", "XY"}:
+                problems.append(f"{source.file_name or source.physical_path}: unsupported source kind {kind!r}")
+                continue
+            path = Path(source.physical_path)
+            if not path.exists():
+                problems.append(f"{path}: file not found")
+                continue
+            try:
+                parsed = parse_file(path, kind=kind)
+                self._add_txt_to_tree(parsed, snapshot=self._source_snapshot_from_session(source))
+                restored += 1
+            except Exception as exc:
+                problems.append(f"{path}: {exc}")
+        if restored:
+            kind = next(iter(kinds), None)
+            if kind:
+                self._set_loaded_kind(kind)
+            folders = sorted({Path(src.physical_path).parent for src in manifest.sources if Path(src.physical_path).exists()})
+            if len(folders) == 1:
+                self.folder_label.setText(str(folders[0])); self._current_data_directory = folders[0]
+            elif folders:
+                self.folder_label.setText("Multiple folders"); self._current_data_directory = folders[-1]
+            panel = getattr(self, "plotted_data_panel", None)
+            if panel is not None and getattr(self, "_current_data_directory", None) is not None:
+                panel.set_default_directory(self._current_data_directory)
+            self._refresh_all_region_combo()
+        return restored, problems
+
+    def _iter_loaded_leaves(self):
+        def walk(item):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child is None:
+                    continue
+                kd = child.data(0, self.ROLE_KEY)
+                if isinstance(kd, tuple):
+                    yield child
+                yield from walk(child)
+        root = self.tree.invisibleRootItem()
+        yield from walk(root)
+
+    def _restore_processed_workspace(self, path: Path, manifest) -> list[str]:
+        from .session_io import load_processed_arrays
+        problems = []
+        wanted = {entry.key: entry for entry in manifest.selected_raw}
+
+        # Restore raw selections at their canonical source: the Loaded-files tree.
+        # The Selected-curves tree is normally derived from these check states, so
+        # restoring only Selected items leaves the two trees inconsistent and a
+        # later UI refresh/rebuild can erase the apparent session selection.
+        tree = getattr(self, "tree", None)
+        if tree is not None:
+            tree.blockSignals(True)
+        try:
+            for loaded in self._iter_loaded_leaves():
+                kd = loaded.data(0, self.ROLE_KEY)
+                if not isinstance(kd, tuple) or not kd:
+                    continue
+                entry = wanted.get(str(kd[0]))
+                try:
+                    # Presence in ``selected_raw`` means membership in the
+                    # Selected-curves workspace.  ``entry.checked`` is a separate
+                    # property: whether that already-selected curve was visible in
+                    # the plot.  Do not conflate the two when restoring the
+                    # left-hand Loaded-files tree.
+                    loaded.setCheckState(
+                        0,
+                        Qt.CheckState.Checked if entry is not None else Qt.CheckState.Unchecked,
+                    )
+                except Exception as exc:
+                    if entry is not None:
+                        problems.append(f"Could not restore selected curve {entry.key}: {exc}")
+        finally:
+            if tree is not None:
+                tree.blockSignals(False)
+
+        # Restore grouping mode before rebuilding the Selected workspace.  This
+        # keeps session round-trips faithful for "All in region" selections.
+        # Older build-3 sessions may not contain these fields; they remain
+        # compatible and are repaired below by attaching processed children to
+        # the actual restored raw-source parent.
+        view = dict(manifest.processed_view or {})
+        try:
+            grouped = bool(view.get("all_in_region_enabled", False))
+            target = str(view.get("all_in_region_target") or "")
+            cb = getattr(self, "cb_all_in_region", None)
+            combo = getattr(self, "combo_all_region", None)
+            if combo is not None and target:
+                idx = combo.findText(target)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+            if cb is not None:
+                cb.blockSignals(True)
+                cb.setChecked(grouped)
+                cb.blockSignals(False)
+            if combo is not None:
+                combo.setEnabled(grouped)
+        except Exception:
+            pass
+
+        # Rebuild through the normal selection path so internal lookup tables,
+        # region parents and map controls have exactly the same shape as after a
+        # user makes these selections manually.
+        try:
+            self._rebuild_selected_from_loaded()
+            # Loading each source can queue the normal deferred Selected-tree
+            # rebuild.  This explicit session rebuild supersedes those callbacks;
+            # invalidate them before restoring persistent processed children so a
+            # later event-loop turn cannot wipe the restored E-cal workspace.
+            self._selected_rebuild_pending = False
+            self._selected_rebuild_generation = int(getattr(self, "_selected_rebuild_generation", 0)) + 1
+            try:
+                self._hide_selection_loading()
+            except Exception:
+                pass
+        except Exception as exc:
+            problems.append(f"Could not rebuild restored Processed Data selection: {exc}")
+
+        # Reapply per-curve plot visibility after the membership rebuild.  This
+        # is deliberately separate from Loaded-tree membership so an unchecked
+        # curve remains inside the same All-in-region group after a round trip.
+        selected_tree = getattr(self, "selected_tree", None)
+        if selected_tree is not None:
+            selected_tree.blockSignals(True)
+        try:
+            for entry in manifest.selected_raw:
+                item = getattr(self, "_selected_by_key", {}).get(entry.key)
+                if item is None:
+                    problems.append(f"Could not restore selected curve {entry.key}")
+                    continue
+                item.setCheckState(
+                    0, Qt.CheckState.Checked if entry.checked else Qt.CheckState.Unchecked
+                )
+        finally:
+            if selected_tree is not None:
+                selected_tree.blockSignals(False)
+
+        # A persistent processed (E-calibrated) curve is derived from a raw
+        # source spectrum.  Guarantee that every saved source_key is present in
+        # the Selected workspace, even for sessions produced by an earlier
+        # build that did not capture the raw membership correctly.  This keeps
+        # energy calibration reversible after reopening the session.
+        required_source_keys = set()
+        for proc_entry in manifest.processed_curves:
+            meta = dict(proc_entry.item_meta or {})
+            source_key = meta.get("source_key")
+            if isinstance(source_key, str) and source_key:
+                required_source_keys.add(source_key)
+        missing_source_keys = required_source_keys.difference(getattr(self, "_selected_by_key", {}).keys())
+        if missing_source_keys:
+            for loaded in self._iter_loaded_leaves():
+                kd = loaded.data(0, self.ROLE_KEY)
+                if not isinstance(kd, tuple) or not kd:
+                    continue
+                raw_key = str(kd[0])
+                if raw_key not in missing_source_keys:
+                    continue
+                try:
+                    self._selected_tree_manager.add_from_loaded_item(
+                        loaded_item=loaded, all_in_region_enabled=False, target_region=""
+                    )
+                    missing_source_keys.discard(raw_key)
+                except Exception as exc:
+                    problems.append(f"Could not restore raw source {raw_key} for calibrated curve: {exc}")
+                if not missing_source_keys:
+                    break
+        for raw_key in sorted(missing_source_keys):
+            problems.append(f"Could not find raw source {raw_key} for calibrated curve")
+
+        try:
+            arrays = load_processed_arrays(path, manifest)
+        except Exception as exc:
+            arrays = {}; problems.append(str(exc))
+        from .ui import PlotPayload
+        max_curve = int(getattr(self, "_next_curve_id", 1))
+        for entry in manifest.processed_curves:
+            try:
+                x, y = arrays[entry.key]
+                payload = PlotPayload(title=entry.title, x=x, y=y, xlabel=entry.xlabel, ylabel=entry.ylabel,
+                                      energy_scale=entry.energy_scale, metadata=dict(entry.metadata or {}))
+                item_meta = dict(entry.item_meta or {})
+
+                # A calibrated curve must be a sibling of its raw source, just
+                # as it is when calibration is created interactively.  Do not
+                # trust historical serialized parent_file values here: early
+                # build-3 sessions encoded the special __GROUP__ parent as an
+                # empty string.  Resolve the canonical parent from source_key
+                # whenever possible so those sessions are repaired on load.
+                parent_file = entry.parent_file or entry.source_file
+                source_key = item_meta.get("source_key")
+                if isinstance(source_key, str) and source_key:
+                    raw_item = getattr(self, "_selected_by_key", {}).get(source_key)
+                    if raw_item is not None:
+                        raw_parent = raw_item.parent()
+                        try:
+                            region_key = self._selected_tree_manager._region_key_for_parent(raw_parent)
+                        except Exception:
+                            region_key = None
+                        if isinstance(region_key, tuple) and region_key:
+                            parent_file = str(region_key[0])
+
+                item = self._selected_tree_manager.add_selected_leaf(
+                    parent_file=parent_file, region_name=entry.region_name,
+                    display=entry.display, key=entry.key, payload=payload, meta=item_meta,
+                    source_file=entry.source_file,
+                )
+                item.setCheckState(0, Qt.CheckState.Checked if entry.checked else Qt.CheckState.Unchecked)
+                if entry.key.startswith("curve_"):
+                    try: max_curve = max(max_curve, int(entry.key.split("_")[-1]) + 1)
+                    except Exception: pass
+            except Exception as exc:
+                problems.append(f"Could not restore processed curve {entry.display or entry.key}: {exc}")
+        self._next_curve_id = max_curve
+
+        self._processed_intensity_mode = str(view.get("intensity_mode") or getattr(self, "_processed_intensity_mode", "counts"))
+        self._norm_to1_enabled = bool(view.get("norm_enabled", False))
+        self._norm_to1_energy = view.get("norm_energy")
+        self._norm_span_percent = float(view.get("norm_span_percent", getattr(self, "_norm_span_percent", 1.0)))
+        # Older build-3 sessions did not store this flag.  Their normalization
+        # energy was normally an automatically selected edge value, so default
+        # to automatic rather than accidentally converting it into a manual
+        # override during widget restoration.
+        self._norm_to1_user_override = bool(view.get("norm_user_override", False))
+        self._norm_to1_auto_default = (
+            None if self._norm_to1_user_override or self._norm_to1_energy is None
+            else float(self._norm_to1_energy)
+        )
+        for row in view.get("region_cmap", []):
+            if isinstance(row, dict):
+                self._region_cmap[(str(row.get("file") or ""), str(row.get("region") or ""))] = str(row.get("cmap") or "terrain")
+        # Restore the saved 2D analysis view before activating map buttons.
+        # Ordinary fresh map entry intentionally defaults to Simple, but a
+        # session is a workspace restore and must preserve Lines/ROI state.
+        saved_map_mode = str(view.get("map_view_mode") or "simple").lower()
+        if saved_map_mode not in {"simple", "lines", "roi"}:
+            saved_map_mode = "simple"
+        self._session_restoring_map_view = True
+        self._session_saved_map_view_mode = saved_map_mode
+        try:
+            self._map_roi_spec = dict(view.get("map_roi_spec") or {}) or None
+            self._map_right_y_mode = str(view.get("map_right_y_mode") or "iteration")
+            memory = {}
+            for row in view.get("map_lines_positions", []):
+                if isinstance(row, dict):
+                    memory[(str(row.get("title") or ""), str(row.get("xlabel") or ""))] = {
+                        "x": float(row.get("x", 0.0)), "y": float(row.get("y", 0.0))
+                    }
+            if memory:
+                self._map_lines_position_memory = memory
+            for name, value in (("sb_map_bin_size", view.get("map_bin_size", 1)),
+                                ("sb_map_h_thickness", view.get("map_h_thickness", 1)),
+                                ("sb_map_v_thickness", view.get("map_v_thickness", 1))):
+                widget = getattr(self, name, None)
+                if widget is not None:
+                    widget.blockSignals(True); widget.setValue(int(value)); widget.blockSignals(False)
+
+            # Restore 2D map normalization without invoking the ordinary
+            # combobox handler.  That handler intentionally reseeds defaults
+            # for a fresh map and opens the settings dialog, neither of which
+            # is appropriate during a quiet session restore.
+            map_norm_mode = str(view.get("map_norm_mode") or "none")
+            if map_norm_mode not in {"none", "at_be", "area"}:
+                map_norm_mode = "none"
+            self._map_norm_mode = map_norm_mode
+            saved_context = view.get("map_norm_context_key")
+            if isinstance(saved_context, list):
+                saved_context = tuple(tuple(v) if isinstance(v, (list, tuple)) else v for v in saved_context)
+            self._map_norm_context_key = saved_context
+            self._map_norm_be = view.get("map_norm_be")
+            self._map_norm_width_ev = view.get("map_norm_width_ev")
+            self._map_norm_area_low = view.get("map_norm_area_low")
+            self._map_norm_area_high = view.get("map_norm_area_high")
+            interval = view.get("map_norm_active_interval")
+            self._map_norm_active_interval = tuple(interval) if isinstance(interval, (list, tuple)) and len(interval) == 2 else None
+            self._map_norm_show_region = bool(view.get("map_norm_show_region", True))
+            norm_combo = getattr(self, "cb_map_normalization", None)
+            if norm_combo is not None:
+                idx = norm_combo.findData(map_norm_mode)
+                norm_combo.blockSignals(True); norm_combo.setCurrentIndex(max(0, idx)); norm_combo.blockSignals(False)
+        except Exception:
+            pass
+        for row in view.get("map_states", []):
+            if not isinstance(row, dict) or not row.get("checked"):
+                continue
+            btn = self._region_map_buttons.get((str(row.get("file") or ""), str(row.get("region") or "")))
+            if btn is not None:
+                try: btn.setChecked(True)
+                except Exception: pass
+        try:
+            button = {
+                "simple": getattr(self, "rb_map_none", None),
+                "lines": getattr(self, "rb_map_lines", None),
+                "roi": getattr(self, "rb_map_roi", None),
+            }.get(saved_map_mode)
+            if button is not None:
+                button.blockSignals(True); button.setChecked(True); button.blockSignals(False)
+            combo = getattr(self, "cb_map_view", None)
+            if combo is not None:
+                idx = combo.findData(saved_map_mode)
+                combo.blockSignals(True); combo.setCurrentIndex(max(0, idx)); combo.blockSignals(False)
+            sync_visibility = getattr(self, "_sync_map_analysis_control_visibility", None)
+            if callable(sync_visibility):
+                sync_visibility()
+        except Exception:
+            pass
+        finally:
+            self._session_restoring_map_view = False
+        try:
+            cb = getattr(self, "cb_norm_to1_proc", None)
+            if cb is not None:
+                cb.blockSignals(True)
+                cb.setChecked(self._norm_to1_enabled)
+                cb.blockSignals(False)
+            sb = getattr(self, "sb_norm_e_proc", None)
+            if sb is not None and self._norm_to1_energy is not None:
+                # QDoubleSpinBox may round the displayed value.  Do not let its
+                # valueChanged signal replace the exact saved energy or mark an
+                # automatic edge value as a user override during restore.
+                sb.blockSignals(True)
+                sb.setValue(float(self._norm_to1_energy))
+                sb.blockSignals(False)
+            span = getattr(self, "sb_norm_span_proc", None)
+            if span is not None:
+                span.blockSignals(True)
+                span.setValue(float(self._norm_span_percent))
+                span.blockSignals(False)
+        except Exception:
+            pass
+
+        # Restore the E-calibration view state explicitly.  Build 3 originally
+        # forced processed curves visible without synchronising the welded power
+        # toggle, leaving the control and tree visibility out of step.
+        has_processed = self._has_any_processed_curves()
+        ecal_enabled = bool(view.get("ecal_enabled", has_processed)) if has_processed else False
+        try:
+            btn = getattr(self, "btn_e_cal_toggle", None)
+            if btn is not None:
+                btn.blockSignals(True)
+                btn.setChecked(ecal_enabled)
+                btn.blockSignals(False)
+            welded = getattr(self, "w_calibrate_control", None)
+            if welded is not None:
+                welded.setProperty("ecal_on", ecal_enabled)
+                for widget in (welded, getattr(self, "btn_calibrate_be", None), btn):
+                    if widget is None:
+                        continue
+                    widget.style().unpolish(widget); widget.style().polish(widget); widget.update()
+        except Exception:
+            pass
+        try:
+            # Opening a session normally leaves the user on Raw Data.  The
+            # shared tree/plot must therefore show raw curves there even when
+            # the saved Processed view had E-calibration enabled.  The saved
+            # toggle state is retained and takes effect when Processed Data is
+            # entered.
+            try:
+                on_processed_tab = bool(self.tabs.currentIndex() == 1)
+            except Exception:
+                on_processed_tab = False
+            self._update_selected_tree_visibility(
+                show_processed=bool(ecal_enabled and on_processed_tab)
+            )
+            self._update_plot_from_selected()
+        except Exception:
+            pass
+        return problems
+
+    def _open_session(self) -> None:
+        """Open a .panda session and restore Raw + Processed Data state."""
+        from .session_io import load_session_file
+        start_dir = str(self._remembered_session_directory())
+        path, _ = QFileDialog.getOpenFileName(self, "Open PANDA session", start_dir,
+                                               "PANDA session (*.panda);;All files (*.*)")
+        if not path:
+            return
+        session_path = Path(path)
+        try:
+            manifest = load_session_file(session_path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Open session failed", f"Could not open session:\n\n{exc}")
+            return
+        self._set_session_directory(session_path.parent)
+        # Treat session loading as one atomic workspace transaction.  Raw source
+        # insertion and checkbox cascades can normally queue deferred rebuilds;
+        # those must never run midway through or immediately after restoration
+        # and wipe persistent E-calibrated children.
+        self._session_restore_in_progress = True
+        self._selected_rebuild_pending = False
+        self._selected_rebuild_generation = int(getattr(self, "_selected_rebuild_generation", 0)) + 1
+        try:
+            self.close_all()
+            restored, problems = self._restore_session_sources(manifest)
+            problems.extend(self._restore_processed_workspace(session_path, manifest))
+            fitting = getattr(manifest, "fitting_state", {}) or {}
+            self._fit_session_registry = {
+                "single": dict(fitting.get("single") or {}),
+                "batch": dict(fitting.get("batch") or {}),
+            }
+            problems.extend(self._restore_plotted_workspace(session_path, manifest))
+            problems.extend(self._restore_signal_identification_state(manifest))
+            problems.extend(self._restore_workspace_state(session_path, manifest))
+        finally:
+            # Invalidate every timer captured before/during the restore before
+            # ordinary Loaded-tree rebuild scheduling is allowed again.
+            self._selected_rebuild_pending = False
+            self._selected_rebuild_generation = int(getattr(self, "_selected_rebuild_generation", 0)) + 1
+            self._session_restore_in_progress = False
+            try:
+                self._hide_selection_loading()
+            except Exception:
+                pass
+        if problems:
+            detail = "\n".join(f"• {row}" for row in problems[:12])
+            if len(problems) > 12: detail += f"\n• ... and {len(problems) - 12} more"
+            QMessageBox.warning(self, "Session opened with warnings",
+                                f"Restored {restored} source file(s).\n\nSome session items could not be restored:\n{detail}")
 
     def _load_file(self, kind: str) -> None:
         filt = filter_for_kind(kind)
@@ -521,6 +1567,15 @@ class UiActionsMixin:
         browser = HelpBrowser()
         browser.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         browser.setStyleSheet("font-size: 17px;")
+        # Keep Help search matches highly visible, independent of the application
+        # selection palette/theme. QTextBrowser.find() selects the current match.
+        try:
+            help_palette = browser.palette()
+            help_palette.setColor(help_palette.ColorRole.Highlight, QColor(255, 235, 59))
+            help_palette.setColor(help_palette.ColorRole.HighlightedText, QColor(0, 0, 0))
+            browser.setPalette(help_palette)
+        except Exception:
+            pass
         browser.setMinimumWidth(380)
         browser.setHtml(usage_html)
 

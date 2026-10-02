@@ -31,7 +31,7 @@ The usual data path is: **load → select → inspect → process → plot or fi
 
 ## Global controls
 
-#### **Load**
+#### **File**
 PANDA supports three primary PES/XPS source formats:
 - **TXT** - Scienta/SES text exports.
 - **IBW** - Igor Binary Wave files.
@@ -39,7 +39,9 @@ PANDA supports three primary PES/XPS source formats:
 
 **Recommended:** drag a supported file from the file manager directly onto the **Loaded files** tree. PANDA detects TXT, IBW, and XY automatically, so there is no file-type menu to choose first.
 
-The **Load** button is the alternative when browsing through a file dialog is more convenient. Choose **TXT**, **IBW**, or **XY (SPECS Prodigy)** and then select the file.
+The **File** button groups explicit data loading and session controls. Choose **Load data...** → **TXT**, **IBW**, or **XY (SPECS Prodigy)** when browsing through a file dialog is more convenient.
+
+Below a separator, **Open session...** and **Save session...** work with PANDA `.panda` session files. A session is a workspace snapshot: it stores the loaded raw-source references and source-snapshot identities, Raw Data signal-identification settings/state, the current **Processed Data** workspace (including persistent processed curves and key normalization/map state), fitting work, and the independent **Plotted Data** composition and display settings. PANDA also remembers the active main panel and modeless analysis windows. If a **Fit selected**, **Batch fitting**, or **Trace comparison** window was open when the session was saved, it is reopened after the underlying data and fitting state have been restored; window size/position and relevant active sub-tabs are restored where available. Open batch-fitting workspaces are captured directly at save time, including live batch-table edits, so they can be continued after loading the session. Closed fit windows remain resumable later by selecting the same curve set and pressing **Fit selected**. **Exit** closes PANDA and all PANDA windows.
 
 All three formats enter the same PANDA Raw Data workflow after loading. Repeated spectra appear as iterations and can be handled with the same selection, map, processing, fitting, and batch-analysis tools. XY files additionally retain Prodigy Group/Spectrum metadata. When a repeated XY acquisition contains one trustworthy physical second coordinate, such as sample temperature, position, or sufficiently resolved acquisition time, PANDA exposes that coordinate through the normal map Y-axis machinery while keeping **Iteration** as the sequence coordinate. Large XY regions create individual Iteration rows only when **Iterations** is expanded.
 
@@ -50,7 +52,7 @@ Closes all opened files and clears loaded file content from the GUI. It also unc
 Clears the working selection and plots without closing loaded files. It also unchecks **Identify signals**, restores its default settings, and returns the main workspace to **Raw Data**. Curves intentionally copied to **Plotted Data** are preserved and can be cleared from that panel itself.
 
 #### **Settings (cog)**
-The cog button immediately before **Load** opens **Settings**. The **Appearance** section controls the application theme (**System**, **Light**, or **Dark**), interface density (**Automatic**, **Standard**, or **Compact**), and UI font size (current default, +1 pt, or +2 pt). Changes apply immediately. Matplotlib plot/figure fonts are not changed.
+The cog button immediately before **File** opens **Settings**. The **Appearance** section controls the application theme (**System**, **Light**, or **Dark**), interface density (**Automatic**, **Standard**, or **Compact**), and UI font size (current default, +1 pt, or +2 pt). Changes apply immediately. Matplotlib plot/figure fonts are not changed.
 
 #### **Help**
 Opens:
@@ -76,13 +78,13 @@ Checking curve items adds them to the working selection and makes them available
 A parent region can contain many iterations. Checking the parent toggles all children in one update.
 
 #### Drag-and-drop loading
-Drag-and-drop is the quickest way to load data in normal use. Drag one or more supported **TXT**, **IBW**, or SPECS Prodigy **XY** files from the file manager onto the **Loaded files** tree. PANDA detects the format automatically and uses the same duplicate/reload protection as the **Load** menu.
+Drag-and-drop is the quickest way to load data in normal use. Drag one or more supported **TXT**, **IBW**, or SPECS Prodigy **XY** files from the file manager onto the **Loaded files** tree. PANDA detects the format automatically and uses the same duplicate/reload protection as **File → Load data...**.
 
-Use **Load** instead when you prefer to browse for a file or explicitly choose a format.
+Use **File → Load data...** instead when you prefer to browse for a file or explicitly choose a format.
 
 
 #### Reloading an already loaded source
-PANDA treats each loaded source file as a **snapshot** of the file contents at load time. Right-click a file-level entry and choose **Reload from disk** to read the current disk contents. If the snapshot has not been used for processing or derived data, PANDA can replace it in place. Once it has been used for normalization, fitting, energy calibration, or Plotted Data, PANDA protects the existing work and provenance and offers **Load updated copy**, **Replace and remove dependent data**, or **Cancel**. Loading the same full file path again through **Load** uses the same policy instead of silently creating an uncontrolled duplicate. Updated copies are labelled explicitly in the Loaded files tree while keeping the real source path in metadata.
+PANDA treats each loaded source file as a **snapshot** of the file contents at load time. Right-click a file-level entry and choose **Reload from disk** to read the current disk contents. If the snapshot has not been used for processing or derived data, PANDA can replace it in place. Once it has been used for normalization, fitting, energy calibration, or Plotted Data, PANDA protects the existing work and provenance and offers **Load updated copy**, **Replace and remove dependent data**, or **Cancel**. Loading the same full file path again through **File → Load data...** uses the same policy instead of silently creating an uncontrolled duplicate. Updated copies are labelled explicitly in the Loaded files tree while keeping the real source path in metadata.
 
 #### Live monitor (specialized online-acquisition tool)
 Right-click a loaded **IBW** or **TXT** file and choose **Open live monitor** to watch a file that is being overwritten as a 2D acquisition grows. IBW acquisition normally stores each region in its own physical file, so each IBW opens its own monitor directly. If a TXT file contains several regions, **Open live monitor** becomes a submenu listing the region names; each region can be opened in its own independent Live Monitor window, and several regions from the same TXT file can be watched at the same time. The monitor opens as an independent non-modal window, so it can be minimized or left behind the main PANDA window while acquisition continues. It does not alter the normal Raw Data selection or plot. The live-map X-axis uses the same energy title as the normal PANDA plot (for example **Binding Energy [eV]** or **Kinetic Energy [eV]**) and follows the main-window **Flip X axis** control. All 2D maps use **terrain** by default. Right-click inside the live 2D map to open the same color-palette chooser used elsewhere in PANDA. After the pointer moves onto the live map and then remains still for about one second, PANDA shows **Right-click to change palette** for about five seconds. The hint is shown only once for that Live Monitor window.

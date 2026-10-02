@@ -130,6 +130,62 @@ class TraceComparisonWindow(QDialog):
         self._sync_controls()
         self._redraw()
 
+    def capture_session_state(self) -> tuple[dict[str, Any], dict[str, tuple[np.ndarray, np.ndarray]]]:
+        """Capture traces, visibility and window geometry for PANDA sessions."""
+        rows: list[dict[str, Any]] = []
+        arrays: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        for idx, trace in enumerate(self._traces):
+            member = f"trace/trace_{idx:05d}.npz"
+            arrays[member] = (np.asarray(trace.x), np.asarray(trace.y))
+            rows.append({
+                "array_member": member, "x_label": trace.x_label, "y_label": trace.y_label,
+                "x_quantity": trace.x_quantity, "x_unit": trace.x_unit, "invert_x": bool(trace.invert_x),
+                "label": trace.label, "metadata": dict(trace.metadata or {}),
+            })
+        g = self.geometry()
+        return {
+            "traces": rows, "visible": bool(self.isVisible()),
+            "geometry": [int(g.x()), int(g.y()), int(g.width()), int(g.height())],
+            "legend": bool(self.cb_legend.isChecked()),
+            "selected_trace": int(self.cb_trace.currentIndex()),
+            "next_trace_number": int(self._next_trace_number),
+            "export_basename": str(self._export_basename),
+        }, arrays
+
+    def restore_session_state(self, state: dict[str, Any], array_loader) -> list[str]:
+        """Restore a trace-comparison session without forcing it visible."""
+        problems: list[str] = []
+        self._traces = []
+        for row in list((state or {}).get("traces") or []):
+            if not isinstance(row, dict):
+                continue
+            try:
+                x, y = array_loader(str(row.get("array_member") or ""))
+                self._traces.append(ComparisonTrace(
+                    x=x, y=y, x_label=str(row.get("x_label") or "X"),
+                    y_label=str(row.get("y_label") or "Intensity"), x_quantity=str(row.get("x_quantity") or ""),
+                    x_unit=row.get("x_unit"), invert_x=bool(row.get("invert_x", False)),
+                    label=str(row.get("label") or ""), metadata=dict(row.get("metadata") or {}),
+                ))
+            except Exception as exc:
+                problems.append(f"Could not restore comparison trace {row.get('label') or ''}: {exc}")
+        self._next_trace_number = max(int((state or {}).get("next_trace_number", len(self._traces) + 1)), len(self._traces) + 1)
+        self._export_basename = str((state or {}).get("export_basename") or "trace_comparison.csv")
+        self.cb_legend.setChecked(bool((state or {}).get("legend", True)))
+        self._sync_controls()
+        idx = int((state or {}).get("selected_trace", -1))
+        if 0 <= idx < self.cb_trace.count(): self.cb_trace.setCurrentIndex(idx)
+        geometry = (state or {}).get("geometry")
+        if isinstance(geometry, (list, tuple)) and len(geometry) == 4:
+            try: self.setGeometry(*(int(v) for v in geometry))
+            except Exception: pass
+        self._redraw()
+        if bool((state or {}).get("visible", False)):
+            self.show(); self.raise_(); self.activateWindow()
+        else:
+            self.hide()
+        return problems
+
     def terminate_session(self) -> None:
         self.clear_traces()
         self.hide()

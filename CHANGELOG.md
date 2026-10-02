@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.1 - 2026-10-02
+
+### Added
+- Add `.panda` workspace sessions that restore loaded data and the main analysis state across Raw, Processed, and Plotted Data, calibration/normalization, signal identification, fitting, trace comparison, and in-progress Batch fitting.
+
+### Fixed
+- Preserve custom peak-fit ranges in saved fit configurations and restore them correctly; 0.12.0 fit-configuration files remain compatible.
+- Make normalization close to spectrum boundaries robust to small rounding or energy-calibration offsets.
+
+### Changed
+- Make Batch fitting modeless so the main PANDA window remains usable while Batch fitting is open.
+- Make closing the main PANDA window close all auxiliary PANDA windows and exit the application completely.
+
 ## 0.12.0 - 2026-09-27
 
 - First public GitHub release of **PANDA — Photoemission Analysis, Normalization and Data Assessment**.

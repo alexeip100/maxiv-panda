@@ -183,6 +183,11 @@ def build_single_fit_parameter_payload(dialog: Any, result: Any, fit_data: Mappi
     except Exception:
         message = ""
 
+    try:
+        fit_range = dialog._current_fit_range() if hasattr(dialog, "_current_fit_range") else None
+    except Exception:
+        fit_range = None
+
     payload = {
         "format": FORMAT_NAME,
         "format_version": FORMAT_VERSION,
@@ -190,6 +195,7 @@ def build_single_fit_parameter_payload(dialog: Any, result: Any, fit_data: Mappi
         "exported": datetime.now().isoformat(timespec="seconds"),
         "source": _clean_for_json(metadata),
         "fit_model": {
+            "fit_range_eV": _clean_for_json(list(fit_range) if fit_range is not None else None),
             "background": {"type": _bg_type_label(bg_type), "parameters": bg_params},
             "peaks": peaks,
         },

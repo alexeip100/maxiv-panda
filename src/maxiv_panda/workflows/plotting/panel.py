@@ -224,6 +224,94 @@ class PlottedDataPanel(QWidget):
     def curves(self) -> tuple[PlottedCurve, ...]:
         return tuple(self._curves)
 
+    def capture_session_state(self) -> tuple[dict[str, Any], dict[str, tuple[np.ndarray, np.ndarray]]]:
+        """Return JSON-safe plotting state plus NPZ-ready numerical snapshots."""
+        curves: list[dict[str, Any]] = []
+        arrays: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        for idx, curve in enumerate(self._curves):
+            member = f"plotted/curve_{idx:05d}.npz"
+            arrays[member] = (np.asarray(curve.x), np.asarray(curve.y))
+            curves.append({
+                "array_member": member, "title": curve.title, "xlabel": curve.xlabel,
+                "ylabel": curve.ylabel, "energy_scale": curve.energy_scale,
+                "visible": bool(curve.visible), "color": curve.color,
+                "linestyle": curve.linestyle, "linewidth": float(curve.linewidth),
+                "custom_name": curve.custom_name, "metadata": dict(curve.metadata or {}),
+            })
+        ann = self.annotation_settings
+        leg = self.legend_settings
+        state = {
+            "curves": curves,
+            "legend_mode": self._legend_mode(),
+            "reverse_x": bool(self.chk_reverse_x.isChecked()),
+            "waterfall": bool(self.chk_waterfall.isChecked()),
+            "waterfall_percent": float(self.spin_waterfall.value()),
+            "waterfall_fill": int(self.slider_waterfall_fill.value()),
+            "waterfall_mono": bool(self.chk_waterfall_mono.isChecked()),
+            "waterfall_color": str(self._waterfall_mono_color),
+            "fixed_width": bool(self.chk_fixed_width.isChecked()),
+            "fixed_width_value": float(self.spin_fixed_width.value()),
+            "grid": str(self.cmb_grid.currentText()),
+            "splitter_sizes": [int(v) for v in self.splitter.sizes()],
+            "annotation": {"text": ann.text, "visible": bool(ann.visible), "x": float(ann.x), "y": float(ann.y), "style": dict(ann.style or {})},
+            "legend_settings": {"location": leg.location, "anchor": list(leg.anchor) if leg.anchor is not None else None, "style": dict(leg.style or {})},
+        }
+        return state, arrays
+
+    def restore_session_state(self, state: dict[str, Any], array_loader) -> list[str]:
+        """Restore a plotted composition captured by :meth:`capture_session_state`."""
+        problems: list[str] = []
+        restored: list[PlottedCurve] = []
+        for row in list((state or {}).get("curves") or []):
+            if not isinstance(row, dict):
+                continue
+            try:
+                x, y = array_loader(str(row.get("array_member") or ""))
+                restored.append(PlottedCurve(
+                    title=str(row.get("title") or "Curve"), x=np.asarray(x), y=np.asarray(y),
+                    xlabel=str(row.get("xlabel") or "Energy"), ylabel=str(row.get("ylabel") or "Intensity"),
+                    energy_scale=str(row.get("energy_scale") or "Unknown"), visible=bool(row.get("visible", True)),
+                    color=row.get("color"), linestyle=str(row.get("linestyle") or "-"),
+                    linewidth=float(row.get("linewidth", 2.0)), custom_name=str(row.get("custom_name") or ""),
+                    metadata=dict(row.get("metadata") or {}),
+                ))
+            except Exception as exc:
+                problems.append(f"Could not restore plotted curve {row.get('title') or ''}: {exc}")
+        self._curves = restored
+        try:
+            mode = str((state or {}).get("legend_mode") or "Curve name")
+            idx = self.cmb_legend.findData(mode)
+            if idx < 0: idx = self.cmb_legend.findText(mode)
+            if idx >= 0: self.cmb_legend.setCurrentIndex(idx)
+            self.chk_reverse_x.setChecked(bool((state or {}).get("reverse_x", False)))
+            self.spin_waterfall.setValue(float((state or {}).get("waterfall_percent", 20.0)))
+            self.slider_waterfall_fill.setValue(int((state or {}).get("waterfall_fill", 0)))
+            self._waterfall_mono_color = str((state or {}).get("waterfall_color") or self._DEFAULT_WATERFALL_COLOR)
+            self.chk_waterfall_mono.setChecked(bool((state or {}).get("waterfall_mono", False)))
+            self.spin_fixed_width.setValue(float((state or {}).get("fixed_width_value", 2.0)))
+            self.chk_fixed_width.setChecked(bool((state or {}).get("fixed_width", False)))
+            grid = str((state or {}).get("grid") or "Finest")
+            if self.cmb_grid.findText(grid) >= 0: self.cmb_grid.setCurrentText(grid)
+            self.chk_waterfall.setChecked(bool((state or {}).get("waterfall", False)))
+            sizes = (state or {}).get("splitter_sizes")
+            if isinstance(sizes, list) and len(sizes) == 2: self.splitter.setSizes([int(v) for v in sizes])
+            ann = dict((state or {}).get("annotation") or {})
+            self.annotation_settings = AnnotationSettings(
+                text=str(ann.get("text") or ""), visible=bool(ann.get("visible", False)),
+                x=float(ann.get("x", 0.04)), y=float(ann.get("y", 0.96)), style=dict(ann.get("style") or AnnotationSettings().style),
+            )
+            leg = dict((state or {}).get("legend_settings") or {})
+            anchor = leg.get("anchor")
+            self.legend_settings = LegendSettings(
+                location=str(leg.get("location") or "best"),
+                anchor=(float(anchor[0]), float(anchor[1])) if isinstance(anchor, (list, tuple)) and len(anchor) == 2 else None,
+                style=dict(leg.get("style") or LegendSettings().style),
+            )
+        except Exception as exc:
+            problems.append(f"Could not restore Plotted Data display settings: {exc}")
+        self._rebuild_list(); self.redraw()
+        return problems
+
     def remove_curves_by_metadata(self, key: str, value: Any) -> int:
         """Remove plotted snapshots whose metadata ``key`` equals ``value``.
 

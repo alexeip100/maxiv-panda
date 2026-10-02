@@ -25,6 +25,31 @@ def normalization_interval(
     return max(float(xmin), low), min(float(xmax), high)
 
 
+
+
+def normalization_interval_if_reachable(
+    xmin: float,
+    xmax: float,
+    centre: float,
+    span_percent: float,
+) -> tuple[float, float] | None:
+    """Return an edge-shifted interval when the requested band reaches the curve.
+
+    A normalization centre may lie slightly beyond a spectrum edge after
+    per-curve energy calibration or GUI rounding.  If at least half of the
+    requested full-width band can still reach the spectrum, use the established
+    inward-shifting rule.  Centres farther away remain invalid.
+    """
+    xmin, xmax = sorted((float(xmin), float(xmax)))
+    total = max(0.0, xmax - xmin)
+    width = min(total, max(0.0, float(span_percent)) * total / 100.0)
+    half_width = 0.5 * width
+    centre = float(centre)
+    if centre < xmin - half_width or centre > xmax + half_width:
+        return None
+    return normalization_interval(xmin, xmax, centre, span_percent)
+
+
 def mean_intensity_over_interval(
     x: np.ndarray,
     y: np.ndarray,

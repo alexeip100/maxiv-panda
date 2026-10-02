@@ -164,6 +164,7 @@ class FitDialogStateMixin:
                 "redchi": self.lbl_fit_redchi.text(),
             },
             "bound_hits": set(getattr(self, "_last_fit_bound_hits", set()) or set()),
+            "fit_range": list(self._current_fit_range()) if hasattr(self, "_current_fit_range") and self._current_fit_range() is not None else None,
         }
     def _restore_curve_state(self, state: Dict[str, Any]) -> None:
         if not state:
@@ -181,6 +182,18 @@ class FitDialogStateMixin:
             self._restore_bg_state(state.get("bg_state") or {}, include_calc=True)
             self._update_fit_results_tables()
             self._last_fit_bound_hits = set(state.get("bound_hits", set()) or set())
+            raw_range = state.get("fit_range")
+            if isinstance(raw_range, (list, tuple)) and len(raw_range) == 2:
+                try:
+                    self._fit_range = tuple(sorted((float(raw_range[0]), float(raw_range[1]))))
+                except Exception:
+                    self._fit_range = None
+            else:
+                self._fit_range = None
+            try:
+                self._update_fit_range_button(); self._refresh_fit_range_artists()
+            except Exception:
+                pass
             self._restore_table_state(self.tbl_fit_results, state.get("fit_table"))
             self._restore_table_state(self.tbl_bg_results, state.get("bg_table"))
             fq = state.get("fit_quality") or {}
@@ -191,11 +204,62 @@ class FitDialogStateMixin:
             self._on_calculate_spectrum()
         finally:
             self._restoring_curve_state = False
+    def _capture_session_fit_state(self) -> Dict[str, Any]:
+        """Capture all per-curve editor state for PANDA session persistence."""
+        try:
+            key = self._get_checked_key()
+            if key:
+                self._curve_states[key] = self._capture_curve_state()
+        except Exception:
+            key = getattr(self, "_active_curve_key", None)
+        states = {}
+        for curve_key, state in dict(getattr(self, "_curve_states", {}) or {}).items():
+            if curve_key in getattr(self, "_payload_by_key", {}):
+                states[str(curve_key)] = state
+        return {
+            "curve_keys": [str(k) for k in getattr(self, "_payload_by_key", {}).keys()],
+            "active_curve_key": str(key or getattr(self, "_active_curve_key", "") or ""),
+            "curve_states": states,
+            "saved_fit_setup": getattr(self, "_saved_fit_setup", None),
+            "active_right_tab": int(getattr(getattr(self, "right_tabs", None), "currentIndex", lambda: 0)()),
+        }
+
+    def _restore_session_fit_state(self, state: Dict[str, Any]) -> None:
+        """Restore a session-captured multi-curve fit editor state."""
+        if not isinstance(state, dict):
+            return
+        available = set(getattr(self, "_payload_by_key", {}).keys())
+        restored = {str(k): v for k, v in dict(state.get("curve_states") or {}).items() if str(k) in available}
+        if restored:
+            self._curve_states.update(restored)
+        saved = state.get("saved_fit_setup")
+        if isinstance(saved, dict):
+            self._saved_fit_setup = saved
+        target = str(state.get("active_curve_key") or "")
+        if target not in available:
+            target = next((k for k in state.get("curve_keys", []) if k in available), "")
+        if target:
+            self._set_checked_curve_key(target)
+            self._plot_checked_curve()
+            if target in self._curve_states:
+                self._restore_curve_state(self._curve_states[target])
+            self._active_curve_key = target
+        try:
+            idx = int(state.get("active_right_tab", 0))
+            if getattr(self, "right_tabs", None) is not None:
+                self.right_tabs.setCurrentIndex(max(0, min(self.right_tabs.count() - 1, idx)))
+        except Exception:
+            pass
+
     def _capture_fit_setup_template(self) -> Dict[str, Any]:
+        fit_range = self._current_fit_range() if hasattr(self, "_current_fit_range") else None
         setup = {
             "peak_states": self._capture_peak_states(include_color=False),
             "so_doublets": self._capture_so_doublet_states(),
             "bg_state": self._capture_bg_state(include_calc=False),
+            # Optional, backward-compatible setup field.  ``None`` means that
+            # the complete current spectrum is used for fitting.
+            "fit_range": list(fit_range) if fit_range is not None else None,
         }
         return FitSetupState.from_mapping(setup).to_mapping()
     def _apply_fit_setup_template(self, state: Dict[str, Any]) -> None:
@@ -213,6 +277,30 @@ class FitDialogStateMixin:
                 self._restore_peak_states(peak_states)
             self._restore_so_doublet_states(state.get("so_doublets") or [])
             self._restore_bg_state(state.get("bg_state") or {}, include_calc=False)
+
+            # Fit range is part of the reusable setup.  Older setup files do
+            # not contain this optional field and therefore retain the
+            # historical full-spectrum behaviour.
+            raw_range = state.get("fit_range")
+            restored_range = None
+            if isinstance(raw_range, (list, tuple)) and len(raw_range) == 2:
+                try:
+                    lo, hi = sorted((float(raw_range[0]), float(raw_range[1])))
+                    full = self._full_spectrum_range() if hasattr(self, "_full_spectrum_range") else None
+                    if full is not None:
+                        f0, f1 = sorted((float(full[0]), float(full[1])))
+                        lo = max(f0, min(lo, f1))
+                        hi = max(f0, min(hi, f1))
+                    if lo < hi:
+                        restored_range = None if (hasattr(self, "_is_full_range") and self._is_full_range(lo, hi)) else (lo, hi)
+                except (TypeError, ValueError):
+                    restored_range = None
+            self._fit_range = restored_range
+            if hasattr(self, "_update_fit_range_button"):
+                self._update_fit_range_button()
+            if hasattr(self, "_refresh_fit_range_artists"):
+                self._refresh_fit_range_artists()
+
             self._clear_fit_results_tables()
             self._on_calculate_spectrum()
         finally:

@@ -1039,20 +1039,31 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
         self.btn_settings.setFixedSize(ui_metrics.standard_control_height, ui_metrics.standard_control_height)
         self.btn_settings.clicked.connect(self.show_settings)
 
-        # Buttons: match flexpes_nexafs (same size policy and global font).
-        self.btn_load = QPushButton("Load", controls)
+        # Primary file/session menu. Drag-and-drop remains the quickest way
+        # to load source data; this menu provides explicit loaders and the
+        # session entry points.
+        self.btn_load = QPushButton("File", controls)
         self.btn_load.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         load_menu = QMenu(self.btn_load)
+        load_data_menu = load_menu.addMenu("Load data...")
         self.act_txt = QAction("TXT", self)
         self.act_ibw = QAction("IBW", self)
         self.act_xy = QAction("XY (SPECS Prodigy)", self)
         self.act_txt.triggered.connect(lambda: self._load_file("TXT"))
         self.act_ibw.triggered.connect(lambda: self._load_file("IBW"))
         self.act_xy.triggered.connect(lambda: self._load_file("XY"))
-        load_menu.addAction(self.act_txt)
-        load_menu.addAction(self.act_ibw)
-        load_menu.addAction(self.act_xy)
+        load_data_menu.addAction(self.act_txt)
+        load_data_menu.addAction(self.act_ibw)
+        load_data_menu.addAction(self.act_xy)
+        load_menu.addSeparator()
+        self.act_open_session = load_menu.addAction("Open session...")
+        self.act_save_session = load_menu.addAction("Save session...")
+        self.act_open_session.triggered.connect(self._open_session)
+        self.act_save_session.triggered.connect(self._save_session)
+        load_menu.addSeparator()
+        self.act_exit = load_menu.addAction("Exit")
+        self.act_exit.triggered.connect(self.close)
         # QPushButton+setMenu gives the "Help button" style dropdown behavior.
         self.btn_load.setMenu(load_menu)
 
@@ -1335,6 +1346,10 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
         self._curve_color_map: dict[str, str] = {}
         self._next_color_index: int = 0
         self._selected_rebuild_pending: bool = False
+        self._selected_rebuild_generation: int = 0
+        self._session_restore_in_progress: bool = False
+        # Fitting state retained independently of whether fit dialogs are open.
+        self._fit_session_registry: dict[str, Any] = {"single": {}, "batch": {}}
         self._selected_plot_update_pending: bool = False
         self._selection_loading_visible: bool = False
 
@@ -1453,13 +1468,30 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
             pass
 
     def _schedule_rebuild_selected_from_loaded(self) -> None:
+        # Session restore reconstructs the Selected workspace explicitly.  Do not
+        # queue raw-only rebuilds while that transaction is in progress.
+        if bool(getattr(self, "_session_restore_in_progress", False)):
+            return
         if self._selected_rebuild_pending:
             return
         self._selected_rebuild_pending = True
+        self._selected_rebuild_generation = int(getattr(self, "_selected_rebuild_generation", 0)) + 1
+        generation = self._selected_rebuild_generation
         self._show_selection_loading()
-        QTimer.singleShot(0, self._flush_rebuild_selected_from_loaded)
+        QTimer.singleShot(0, lambda g=generation: self._flush_rebuild_selected_from_loaded(g))
 
-    def _flush_rebuild_selected_from_loaded(self) -> None:
+    def _flush_rebuild_selected_from_loaded(self, generation: int | None = None) -> None:
+        # A bool alone cannot invalidate a queued callback safely: a stale timer
+        # can run after a newer rebuild has set the bool True again.  The captured
+        # generation identifies the exact request that owns this callback.
+        current_generation = int(getattr(self, "_selected_rebuild_generation", 0))
+        if generation is not None and int(generation) != current_generation:
+            return
+        if bool(getattr(self, "_session_restore_in_progress", False)):
+            return
+        if not bool(getattr(self, "_selected_rebuild_pending", False)):
+            self._hide_selection_loading()
+            return
         self._selected_rebuild_pending = False
         try:
             self._rebuild_selected_from_loaded()
@@ -1467,8 +1499,45 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
             self._hide_selection_loading()
 
     def _rebuild_selected_from_loaded(self) -> None:
-        """Rebuild the Selected-curves tree based on which leaves are checked in the left tree."""
+        """Rebuild Selected curves from Loaded files without losing derived curves.
+
+        Persistent processed children (currently E-calibrated spectra) are derived
+        from raw Selected items and must survive an otherwise harmless raw-tree
+        rebuild.  Keep them iff their ``source_key`` is still selected, then
+        reattach them to the rebuilt raw source's actual parent.
+        """
         checked_leaves = [it for it in self._iter_curve_leaves() if it.checkState(0) == Qt.CheckState.Checked]
+
+        # Snapshot persistent processed children before rebuild_from_loaded()
+        # clears the Selected tree and its key registry.  This makes the rebuild
+        # idempotent with respect to energy calibration and removes a long-lived
+        # race where a late raw selection refresh could silently erase E-cal data.
+        processed_state = []
+        try:
+            for key, item in list(getattr(self, "_selected_by_key", {}).items()):
+                meta = item.data(0, self.ROLE_META)
+                if not (isinstance(meta, dict) and bool(meta.get("processed", False))):
+                    continue
+                source_key = meta.get("source_key")
+                if not isinstance(source_key, str) or not source_key:
+                    continue
+                processed_state.append({
+                    "key": str(key),
+                    "display": str(item.text(0)),
+                    "payload": item.data(0, self.ROLE_PAYLOAD),
+                    "meta": dict(meta),
+                    "source_file": str(item.data(0, self.ROLE_FILE) or ""),
+                    "region_name": str(item.data(0, self.ROLE_REGION) or ""),
+                    "checked": item.checkState(0),
+                    "source_key": source_key,
+                })
+        except Exception as exc:
+            log_noncritical_error("capturing processed curves before selected-tree rebuild", exc, logger=self._logger)
+
+        try:
+            ecal_toggle_checked = bool(self.btn_e_cal_toggle.isChecked())
+        except Exception:
+            ecal_toggle_checked = False
 
         self.selected_tree.setUpdatesEnabled(False)
         self.selected_tree.blockSignals(True)
@@ -1478,6 +1547,33 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
                 all_in_region_enabled=bool(self.cb_all_in_region.isChecked()),
                 target_region=self._selected_target_region(),
             )
+
+            # Reattach each persistent derivative to the canonical parent of its
+            # rebuilt raw source.  If the source is no longer selected, dropping
+            # the derivative is intentional.
+            for row in processed_state:
+                raw_item = getattr(self, "_selected_by_key", {}).get(row["source_key"])
+                if raw_item is None:
+                    continue
+                raw_parent = raw_item.parent()
+                try:
+                    region_key = self._selected_tree_manager._region_key_for_parent(raw_parent)
+                except Exception:
+                    region_key = None
+                parent_file = row["source_file"]
+                if isinstance(region_key, tuple) and region_key:
+                    parent_file = str(region_key[0])
+                region_name = row["region_name"] or str(raw_item.data(0, self.ROLE_REGION) or "")
+                restored = self._selected_tree_manager.add_selected_leaf(
+                    parent_file=parent_file,
+                    region_name=region_name,
+                    display=row["display"],
+                    key=row["key"],
+                    payload=row["payload"],
+                    meta=row["meta"],
+                    source_file=row["source_file"],
+                )
+                restored.setCheckState(0, row["checked"])
         finally:
             self.selected_tree.blockSignals(False)
             self.selected_tree.setUpdatesEnabled(True)
@@ -1486,24 +1582,18 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
             except Exception:
                 pass
 
-        self._update_plot_from_selected()
         try:
             cur_is_processed_tab = self._is_processed_tab_active()
             has_processed = self._has_any_processed_curves()
-            if cur_is_processed_tab and has_processed:
-                try:
-                    self.btn_e_cal_toggle.setChecked(True)
-                except Exception:
-                    pass
-                show_processed = True
-            else:
-                show_processed = False
-            self._update_selected_tree_visibility(show_processed=bool(show_processed))
+            show_processed = bool(cur_is_processed_tab and has_processed and ecal_toggle_checked)
+            self._update_selected_tree_visibility(show_processed=show_processed)
             # Rebuilding the tree recreates the per-region Map buttons (unchecked
             # by default), so make sure the Processed controls return to 1D mode.
             self._sync_processed_controls_for_map_mode()
         except Exception as exc:
             log_noncritical_error("updating selected tree visibility after rebuild", exc, logger=self._logger)
+
+        self._update_plot_from_selected()
 
     def _add_txt_to_tree(self, parsed: Any, snapshot: Any = None) -> None:
         self._loaded_tree_controller.add_parsed_to_tree(parsed, snapshot=snapshot)
@@ -2085,6 +2175,25 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
         processed_controller = getattr(self, '_processed_controller', None)
         if processed_controller is not None:
             processed_controller.update_norm_default_from_payloads(payloads)
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt API spelling
+        """Close every PANDA top-level window, then terminate the application."""
+        if bool(getattr(self, "_application_shutdown_in_progress", False)):
+            event.accept()
+            return
+        self._application_shutdown_in_progress = True
+        app = QApplication.instance()
+        if app is not None:
+            for widget in list(app.topLevelWidgets()):
+                if widget is self:
+                    continue
+                try:
+                    widget.close()
+                except Exception:
+                    pass
+        event.accept()
+        if app is not None:
+            QTimer.singleShot(0, app.quit)
 
     def _apply_curve_color_icons(self, items: list[tuple[QTreeWidgetItem, str]], colors: list[Any]) -> None:
         """Add a small colored square icon to each selected curve item."""

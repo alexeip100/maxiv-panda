@@ -1111,6 +1111,18 @@ def open_fit_corelevel_dialog(mw) -> int:
     # needed here.
     dlg = FitCoreLevelDialog(mw, parent=None)
 
+    # Restore any fit-editor state previously captured for this exact selected
+    # curve set (for example from a reopened PANDA session).
+    signature = "||".join(sorted(str(row[0]) for row in items))
+    dlg._session_signature = signature
+    try:
+        registry = getattr(mw, "_fit_session_registry", {}) or {}
+        saved_state = (registry.get("single", {}) or {}).get(signature)
+        if isinstance(saved_state, dict):
+            dlg._restore_session_fit_state(saved_state)
+    except Exception as exc:
+        log_noncritical_error("restoring fit-session state", exc)
+
     # Keep an application-owned reference so the independent fit window is not
     # garbage-collected after this function returns, and remove it again when
     # the window closes.
@@ -1121,6 +1133,17 @@ def open_fit_corelevel_dialog(mw) -> int:
     dialogs.append(dlg)
 
     def _forget_dialog(*_args):
+        # Persist the editor state in the main-window registry before the dialog
+        # is destroyed.  Session saving therefore works even after the fit
+        # window has been closed.
+        try:
+            registry = getattr(mw, "_fit_session_registry", None)
+            if not isinstance(registry, dict):
+                registry = {"single": {}, "batch": {}}
+                setattr(mw, "_fit_session_registry", registry)
+            registry.setdefault("single", {})[signature] = dlg._capture_session_fit_state()
+        except Exception as exc:
+            log_noncritical_error("capturing fit-session state", exc)
         try:
             dialogs.remove(dlg)
         except ValueError:

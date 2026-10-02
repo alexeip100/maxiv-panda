@@ -449,21 +449,43 @@ def _fit_core_level(
                 [0.0, float(_np.nanmin(xx)), 0.0, 1e-6, 1e-3, 1e-3, -_np.inf, -_np.inf],
                 [_np.inf, float(_np.nanmax(xx)), _np.inf, float(_span), _width_ub, _width_ub, _np.inf, _np.inf],
             )
-            seeds = []
-            for _frac in (0.20, ratio_guess / (1.0 + ratio_guess), 0.80):
-                _cen1_seed = float(cen_guess - delta_guess * _frac)
-                for _w0 in (0.08, 0.15, min(0.25, _width_ub)):
-                    seeds.append([a1_guess, _cen1_seed, a2_guess, delta_guess, _w0, _w0, b_guess, 0.0])
+            # Calibration only needs a reliable marker energy (maximum of the
+            # summed fitted envelope), not a globally optimized spectroscopy fit.
+            # Use one physics-based seed and only one fallback seed if needed.
+            _frac0 = ratio_guess / (1.0 + ratio_guess)
+            primary = [
+                a1_guess,
+                float(cen_guess - delta_guess * _frac0),
+                a2_guess,
+                delta_guess,
+                min(0.15, _width_ub),
+                min(0.15, _width_ub),
+                b_guess,
+                0.0,
+            ]
+            fallback = [
+                a1_guess,
+                float(cen_guess - delta_guess * 0.5),
+                a2_guess,
+                delta_guess,
+                min(0.22, _width_ub),
+                min(0.22, _width_ub),
+                b_guess,
+                0.0,
+            ]
             best = None
             best_rss = float("inf")
-            for p0 in seeds:
+            for p0 in (primary, fallback):
                 try:
-                    popt_try, pcov = curve_fit(model_free, xx, yy, p0=p0, bounds=bounds, maxfev=50000)
+                    popt_try, pcov = curve_fit(
+                        model_free, xx, yy, p0=p0, bounds=bounds, maxfev=4000
+                    )
                     yfit_try = model_free(xx, *popt_try)
                     rss_try = _rss(yy, yfit_try)
-                    if rss_try < best_rss:
-                        best_rss = rss_try
-                        best = popt_try
+                    best = popt_try
+                    best_rss = rss_try
+                    # A successful first fit is normally sufficient for calibration.
+                    break
                 except Exception:
                     continue
             if best is None:
@@ -477,21 +499,37 @@ def _fit_core_level(
                 [0.0, float(_np.nanmin(xx)), 0.0, 1e-3, 1e-3, -_np.inf, -_np.inf],
                 [_np.inf, float(_np.nanmax(xx)), _np.inf, _width_ub, _width_ub, _np.inf, _np.inf],
             )
-            seeds = []
-            for _frac in (0.20, ratio_guess / (1.0 + ratio_guess), 0.80):
-                _cen1_seed = float(cen_guess - float(_delta) * _frac)
-                for _w0 in (0.08, 0.15, min(0.25, _width_ub)):
-                    seeds.append([a1_guess, _cen1_seed, a2_guess, _w0, _w0, b_guess, 0.0])
+            _frac0 = ratio_guess / (1.0 + ratio_guess)
+            primary = [
+                a1_guess,
+                float(cen_guess - float(_delta) * _frac0),
+                a2_guess,
+                min(0.15, _width_ub),
+                min(0.15, _width_ub),
+                b_guess,
+                0.0,
+            ]
+            fallback = [
+                a1_guess,
+                float(cen_guess - float(_delta) * 0.5),
+                a2_guess,
+                min(0.22, _width_ub),
+                min(0.22, _width_ub),
+                b_guess,
+                0.0,
+            ]
             best = None
             best_rss = float("inf")
-            for p0 in seeds:
+            for p0 in (primary, fallback):
                 try:
-                    popt_try, pcov = curve_fit(model_fixed_delta, xx, yy, p0=p0, bounds=bounds, maxfev=50000)
+                    popt_try, pcov = curve_fit(
+                        model_fixed_delta, xx, yy, p0=p0, bounds=bounds, maxfev=4000
+                    )
                     yfit_try = model_fixed_delta(xx, *popt_try)
                     rss_try = _rss(yy, yfit_try)
-                    if rss_try < best_rss:
-                        best_rss = rss_try
-                        best = popt_try
+                    best = popt_try
+                    best_rss = rss_try
+                    break
                 except Exception:
                     continue
             if best is None:

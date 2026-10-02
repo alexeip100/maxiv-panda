@@ -625,17 +625,46 @@ class MapPlotMixin:
         """
         centers, tick_idx = self._map_tick_indices(rows)
         ax_map.set_ylim(0.0, float(rows))
-        ax_map.set_yticks(centers[tick_idx])
         if secondary_y is not None and len(secondary_y) == rows:
-            left_values = secondary_y
+            # The map image uses row coordinates internally, but a physical
+            # second dimension (typically photon energy) should look like a
+            # physical axis rather than a list of sampled row centres.  Using
+            # every Nth binned row as a tick made even bin sizes shift the
+            # visible scale by half a sampling step (e.g. 484.1, 486.1, ...).
+            # Generate stable "nice" physical ticks and interpolate their row
+            # positions instead.  Binned rows still retain their true mean
+            # physical coordinate for cursors/profiles.
+            try:
+                import numpy as _np
+                from matplotlib.ticker import MaxNLocator
+                values = _np.asarray(secondary_y, dtype=float).reshape(-1)
+                finite = _np.isfinite(values)
+                if values.size == rows and finite.all() and rows >= 2:
+                    lo = float(_np.min(values)); hi = float(_np.max(values))
+                    locator = MaxNLocator(nbins=min(9, max(3, rows)), steps=[1, 2, 2.5, 5, 10])
+                    physical_ticks = _np.asarray(locator.tick_values(lo, hi), dtype=float)
+                    tol = max(abs(hi - lo), 1.0) * 1e-10
+                    physical_ticks = physical_ticks[(physical_ticks >= lo - tol) & (physical_ticks <= hi + tol)]
+                    row_centers = _np.arange(rows, dtype=float) + 0.5
+                    if values[0] <= values[-1]:
+                        positions = _np.interp(physical_ticks, values, row_centers)
+                    else:
+                        positions = _np.interp(physical_ticks, values[::-1], row_centers[::-1])
+                    ax_map.set_yticks(positions)
+                    ax_map.set_yticklabels([self._format_map_axis_value(v) for v in physical_ticks])
+                else:
+                    raise ValueError
+            except Exception:
+                ax_map.set_yticks(centers[tick_idx])
+                ax_map.set_yticklabels([self._format_map_axis_value(secondary_y[i]) for i in tick_idx])
             left_label = secondary_label
         else:
             # Iteration-only maps still carry a meaningful Y coordinate.  Show
             # it on the map as well as on the right-hand trace instead of
             # leaving the map's left side blank.
-            left_values = iteration_labels
+            ax_map.set_yticks(centers[tick_idx])
+            ax_map.set_yticklabels([self._format_map_axis_value(iteration_labels[i]) for i in tick_idx])
             left_label = "Iteration"
-        ax_map.set_yticklabels([self._format_map_axis_value(left_values[i]) for i in tick_idx])
         ax_map.set_ylabel(left_label)
         # Lines/ROI use an identically sized bottom trace.  Pin the map label
         # to the same axes-coordinate X position as the bottom Intensity label

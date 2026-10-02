@@ -6,7 +6,7 @@ Load data and create the working selection used by plotting and analysis tools.
 A basic workflow is:
 
 1. **Recommended:** drag a TXT, IBW, or SPECS Prodigy XY file from the file manager onto the **Loaded files** tree. PANDA detects the format automatically.
-2. Alternatively, click **Load**, choose **TXT**, **IBW**, or **XY (SPECS Prodigy)**, and select the file.
+2. Alternatively, choose **File → Load data...**, then **TXT**, **IBW**, or **XY (SPECS Prodigy)**, and select the file.
 3. Expand the file and region, for example `S2p`, `C1s`, or another core-level region.
 4. Check the spectrum or spectra you want to inspect. They appear in the selected-curve tree on the right and in the main plot.
 5. Use **Raw Data** first to verify that the file was read correctly.
@@ -16,7 +16,7 @@ A basic workflow is:
 
 Use **Single curve fit** to build the model, **Batch fitting** to apply it to a sequence, and **Analyze fit results** to inspect parameter trends.
 
-**Controls used (What is what?):** *Drag-and-drop*, *Load*, *Loaded files tree*, *Selected-curve tree*, *Raw Data*, *Processed Data*, *Fit core-level PE spectra*, *Batch fitting of core-level PE spectra*
+**Controls used (What is what?):** *Drag-and-drop*, *File → Load data...*, *Loaded files tree*, *Selected-curve tree*, *Raw Data*, *Processed Data*, *Fit core-level PE spectra*, *Batch fitting of core-level PE spectra*
 
 ### Abbreviations used below
 - **PES**: Photoelectron Spectroscopy.
@@ -38,10 +38,10 @@ Use **Single curve fit** to build the model, **Batch fitting** to apply it to a 
 3. PANDA detects the format automatically and adds the file to the tree.
 4. Expand the file and inspect the available regions and spectra.
 
-This is usually faster than choosing a loader first and is the recommended everyday method. Drag-and-drop uses the same source-snapshot and duplicate/reload protection as the Load menu.
+This is usually faster than choosing a loader first and is the recommended everyday method. Drag-and-drop uses the same source-snapshot and duplicate/reload protection as File → Load data....
 
-### Alternative: Load menu
-1. Click **Load** in the top-left control area.
+### Alternative: File menu
+1. Click **File** in the top-left control area and choose **Load data...**.
 2. Choose **TXT**, **IBW**, or **XY (SPECS Prodigy)**.
 3. Select the file in the file dialog.
 4. Wait until it appears in the **Loaded files** tree.
@@ -52,9 +52,9 @@ For very large XY regions, PANDA delays creation of individual Iteration rows un
 
 For repeated XY regions, PANDA also checks whether the acquisition carries one reliable physical Y coordinate. A varying external channel such as sample temperature is used when available; otherwise PANDA can use one varying Y/Z position coordinate or sufficiently resolved acquisition time. If no trustworthy physical coordinate is available, the Y axis remains **Iteration**. This does not change the spectra or their iteration numbering.
 
-**If a file does not appear:** with the Load menu, check that the selected loader matches the file type. With drag-and-drop, verify that the extension is one of the supported formats.
+**If a file does not appear:** with **File → Load data...**, check that the selected loader matches the file type. With drag-and-drop, verify that the extension is one of the supported formats.
 
-**Controls used (What is what?):** *Drag-and-drop*, *Load*, *TXT*, *IBW*, *XY (SPECS Prodigy)*, *Loaded files tree*
+**Controls used (What is what?):** *Drag-and-drop*, *File → Load data...*, *TXT*, *IBW*, *XY (SPECS Prodigy)*, *Loaded files tree*
 
 
 ## Inspect file and acquisition metadata
@@ -75,7 +75,7 @@ For very long axis or scan-point arrays, PANDA summarizes the values rather than
 ## Reload a file without losing provenance
 A loaded source is a snapshot of the file at the moment it was read. Use this workflow when the physical file has changed on disk.
 
-1. Right-click the file-level entry in **Loaded files** and choose **Reload from disk**. You can also use **Load** on the same full path; PANDA routes that through the same reload policy.
+1. Right-click the file-level entry in **Loaded files** and choose **Reload from disk**. You can also use **File → Load data...** on the same full path; PANDA routes that through the same reload policy.
 2. If no processed or plotted data depend on the current snapshot, confirm replacement to refresh it in place.
 3. If the snapshot has already been used for processing or derived data, choose one of:
    - **Load updated copy** - safest/default choice; keep the old immutable snapshot and its derived data, and load the current disk contents as a clearly labelled new snapshot.

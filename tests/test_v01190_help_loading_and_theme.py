@@ -18,7 +18,7 @@ def test_help_loading_promotes_drag_drop_and_balances_formats():
     assert "Drag-and-drop is the quickest way to load data" in controls
 
     assert "### Recommended: drag and drop" in workflows
-    assert "### Alternative: Load menu" in workflows
+    assert "### Alternative: File menu" in workflows
     assert "PANDA detects the format automatically" in workflows
     assert "all three formats use the same PANDA selection and analysis workflow" in workflows
 
