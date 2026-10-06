@@ -1,5 +1,17 @@
 # What’s new in PANDA
 
+## PANDA 0.12.2
+
+PANDA 0.12.2 improves automatic signal identification in survey spectra, with stronger use of consistency between core levels of the same element.
+
+### Changed
+- **Signal identification now evaluates core levels as element families across shells.** Once an element is independently supported by at least two photoelectron families, PANDA can search for another accessible core-level family that has a real measured feature near its expected energy. Yeh-Lindau photoionization cross sections are used only as broad relative-intensity evidence, allowing large experimental deviations rather than enforcing theoretical peak ratios.
+- **Live Monitor can now be opened directly from individual region entries** in the Loaded files tree for both TXT and IBW data, while the existing file-level actions remain available.
+
+### Fixed
+- **Strong core lines are less likely to be missed when broad survey peak detection places a provisional maximum slightly away from the true local peak.** Family-supported recovery now re-examines the measured spectrum near the expected energy; this fixes cases such as Na 1s being omitted even when Na 2s and Na 2p already establish sodium.
+- **Clear all now reliably unchecks every checkbox in the Loaded files tree**, including grouped/tri-state entries that could occasionally remain checked.
+
 ## PANDA 0.12.1
 
 PANDA 0.12.1 adds workspace sessions and refines several established 0.12.0 workflows.

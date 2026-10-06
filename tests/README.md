@@ -48,3 +48,11 @@ Version 0.7.74 adds regression coverage for charging-assisted Auger identificati
 ## Experimental single-spectrum fit reference
 
 `tests/data/reference/peak_fitting/ir111_ir4f_clean_170ev/` contains a clean-Ir(111) Ir 4f spectrum and a final four-component fit setup. The integration tests verify IBW import, setup/constraint restoration, convergence, peak positions, spin-orbit and surface-shift relations, and fit quality.
+
+### Real signal-identification regression spectra
+
+`tests/data/signal_identification/na_survey_1200eV.txt` and
+`na_survey_1160eV.txt` are real Scienta survey exports retained as regression
+fixtures for the Na-family identifier.  The tests require Na 2p + Na 2s + Na 1s
+to remain consistently identified at both photon energies, including the
+1200 eV case that originally exposed the missed-Na-1s recovery bug.

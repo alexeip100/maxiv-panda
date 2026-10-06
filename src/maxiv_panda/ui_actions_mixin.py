@@ -186,25 +186,30 @@ class UiActionsMixin:
         if callable(reset_map_norm):
             reset_map_norm(close_dialog=True)
 
-        # Uncheck everything in the loaded-files tree without triggering updates on every item.
+        # Uncheck every checkable node in the loaded-files tree without
+        # triggering a plot rebuild for each item.  Walk children first and
+        # parents last: Qt auto-tristate group items can otherwise be
+        # recomputed from still-checked descendants while the reset is in
+        # progress, leaving an apparently checked group after Clear all.
         try:
             self.tree.blockSignals(True)
-            # Walk the tree recursively starting from the root.
-            def _walk(item: QTreeWidgetItem) -> None:
-                for i in range(item.childCount()):
-                    ch = item.child(i)
-                    # Only touch checkable items.
-                    try:
-                        if ch.flags() & Qt.ItemFlag.ItemIsUserCheckable:
-                            ch.setCheckState(0, Qt.CheckState.Unchecked)
-                    except Exception:
-                        pass
-                    _walk(ch)
 
-            _walk(self._files_root)
+            def _uncheck_postorder(item: QTreeWidgetItem) -> None:
+                for i in range(item.childCount()):
+                    _uncheck_postorder(item.child(i))
+                try:
+                    if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                        item.setCheckState(0, Qt.CheckState.Unchecked)
+                except Exception:
+                    pass
+
+            # Start at the invisible root so this remains complete even if
+            # another top-level loaded-data branch is introduced later.
+            _uncheck_postorder(self.tree.invisibleRootItem())
         finally:
             try:
                 self.tree.blockSignals(False)
+                self.tree.viewport().update()
             except Exception:
                 pass
 

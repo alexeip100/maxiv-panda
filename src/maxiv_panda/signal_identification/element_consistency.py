@@ -810,6 +810,153 @@ def _recover_same_shell_sp_pairs(
             result = _upsert_assignment_at_peak(result, s_assignment, tolerance_eV=0.8)
     return result
 
+
+def _recover_cross_shell_family_members(
+    assignments: list[PeakAssignment], payload: Any, *, selected_elements: set[str],
+    energy_scale: str, photon_energy: float | None, sample_mode: str,
+) -> list[PeakAssignment]:
+    """Recover a missing core family once an element is independently established.
+
+    This is deliberately a *second-stage* element-family check.  It never creates
+    an element from a single reference-near fluctuation.  At least two independent
+    photoelectron families from the same element must already be accepted.  The
+    remaining accessible core families are then searched for measured local maxima.
+
+    Yeh-Lindau cross sections provide only a broad intensity prior: analyzer
+    transmission, IMFP, angular distributions and chemistry can change measured
+    ratios substantially.  Consequently the cross-section comparison is used to
+    tune confidence/thresholds over orders of magnitude, never as a hard expected
+    intensity ratio.
+    """
+    if photon_energy is None:
+        return assignments
+
+    result = list(assignments)
+    span = _global_span(payload)
+    x = np.asarray(payload.x, dtype=float).reshape(-1)
+    finite_x = x[np.isfinite(x)]
+    if finite_x.size < 5:
+        return result
+    x_lo, x_hi = float(np.min(finite_x)), float(np.max(finite_x))
+
+    records = normalized_core_records(sample_mode)
+    families_by_element: dict[str, set[str]] = {}
+    for record in records:
+        element = str(record.get("element", "")).strip()
+        if not element or (selected_elements and element not in selected_elements):
+            continue
+        line = str(record.get("transition", record.get("line", ""))).strip()
+        family = _base_transition(line)
+        if re.fullmatch(r"\d+[spdf]", family):
+            families_by_element.setdefault(element, set()).add(family)
+
+    for element in sorted(selected_elements):
+        accepted = [
+            a for a in _accepted_pe(result)
+            if a.best is not None and a.best.element == element
+        ]
+        present_families = {_base_transition(a.best.line) for a in accepted if a.best is not None}
+        # Two independent PE families are the minimum evidence required before
+        # absolute-energy recovery of another shell is allowed.  Na 2p + 2s is
+        # the motivating example.
+        if len(present_families) < 2:
+            continue
+
+        # Estimate a very rough measured-prominence / cross-section scale from
+        # established families.  Use one representative (strongest measured)
+        # feature per family so resolved doublets are not double-counted.
+        anchor_scales: list[float] = []
+        anchor_prominences: list[float] = []
+        for family in sorted(present_families):
+            members = [
+                a for a in accepted
+                if a.best is not None and _base_transition(a.best.line) == family
+            ]
+            if not members:
+                continue
+            prominence = max(max(float(a.peak.prominence), 0.0) for a in members)
+            sigma = family_cross_section_at(element, family, photon_energy)
+            if prominence > 0:
+                anchor_prominences.append(prominence)
+            if sigma is not None and sigma > 0 and prominence > 0:
+                anchor_scales.append(prominence / float(sigma))
+
+        median_scale = float(np.median(anchor_scales)) if anchor_scales else None
+        typical_anchor = float(np.median(anchor_prominences)) if anchor_prominences else span * 0.001
+        shift = _element_shift(result, element)
+
+        for family in sorted(families_by_element.get(element, set())):
+            if family in present_families:
+                continue
+            expected = _reference_position_for_line(
+                element=element, line=family, energy_scale=energy_scale,
+                photon_energy=photon_energy, sample_mode=sample_mode,
+            )
+            if expected is None:
+                continue
+            target = float(expected) + float(shift)
+            # Skip core levels outside the actually displayed/measured axis.
+            if target < x_lo - 0.5 or target > x_hi + 0.5:
+                continue
+            if str(energy_scale).lower().startswith("bind") and target <= 15.0:
+                continue
+
+            sigma_target = family_cross_section_at(element, family, photon_energy)
+            # Baseline evidence floor stays conservative.  Cross sections may
+            # lower it modestly for a family expected stronger than established
+            # anchors, but never enough to turn noise into a line.
+            base_floor = max(span * 0.00012, np.finfo(float).eps)
+            predicted = None
+            if median_scale is not None and sigma_target is not None and sigma_target > 0:
+                predicted = median_scale * float(sigma_target)
+                # A huge theoretical ratio (e.g. Na 1s vs 2p at 1.2 keV) is
+                # informative, but analyzer/IMFP effects forbid using it
+                # literally.  At most relax/tighten the floor by ~3x.
+                relative = predicted / max(typical_anchor, np.finfo(float).eps)
+                sensitivity = float(np.clip(relative ** 0.25, 0.35, 3.0))
+                min_height = base_floor / sensitivity
+            else:
+                min_height = base_floor
+
+            peak = _find_feature(payload, target, half_width=5.0, min_height=min_height)
+            if peak is None:
+                continue
+
+            # Require a genuinely measured local feature, then use the
+            # cross-section comparison only as a broad plausibility/support
+            # term.  Ratios within one decade receive strong support; even two
+            # decades are not a veto because kinetic-energy-dependent response
+            # can be substantial in survey spectra.
+            support = 0.84
+            intensity_note = ""
+            if predicted is not None and predicted > 0 and peak.prominence > 0:
+                measured_ratio = float(peak.prominence) / float(predicted)
+                log_mismatch = abs(float(np.log10(max(measured_ratio, 1e-12))))
+                if log_mismatch <= 1.0:
+                    support = 0.98
+                elif log_mismatch <= 2.0:
+                    support = 0.91
+                else:
+                    support = 0.82
+                intensity_note = (
+                    f"; measured/cross-section-scaled prominence ratio ~{measured_ratio:.2g}"
+                )
+
+            reason = (
+                "Accepted by element-family consistency: the element is independently "
+                f"established by {', '.join(sorted(present_families))}; a measured "
+                f"{family} feature is present near its expected energy and is broadly "
+                f"compatible with Yeh-Lindau cross-section evidence{intensity_note}"
+            )
+            recovered = _candidate_assignment(
+                peak=peak, element=element, line=family, expected=target,
+                photon_energy=photon_energy, support=support, reason=reason,
+            )
+            result = _upsert_assignment_at_peak(result, recovered, tolerance_eV=0.8)
+            present_families.add(family)
+
+    return result
+
 def _recover_transition_metal_2p(
     assignments: list[PeakAssignment], payload: Any, *, selected_elements: set[str],
     energy_scale: str, photon_energy: float | None, sample_mode: str,
@@ -1776,6 +1923,14 @@ def apply_element_consistency(
     # Same-shell p/s pairing remains useful as independent corroboration after
     # the deep-core hierarchy has been established.
     result = _recover_same_shell_sp_pairs(
+        result, payload, selected_elements=selected_elements,
+        energy_scale=energy_scale, photon_energy=photon_energy, sample_mode=sample_mode,
+    )
+    # Once two independent PE families establish an element, search other
+    # accessible core shells with a deliberately broad cross-section-informed
+    # intensity prior.  This is the generic family pass needed for cases such
+    # as Na 2p + Na 2s corroborating an otherwise missed Na 1s line.
+    result = _recover_cross_shell_family_members(
         result, payload, selected_elements=selected_elements,
         energy_scale=energy_scale, photon_energy=photon_energy, sample_mode=sample_mode,
     )

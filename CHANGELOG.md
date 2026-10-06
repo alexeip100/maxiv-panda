@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.2 - 2026-10-06
+
+### Changed
+- Improve survey signal identification with cross-shell element-family consistency: once an element is independently supported by at least two photoelectron families, other accessible core-level families can be recovered from real measured features, with Yeh-Lindau cross sections used only as broad relative-intensity evidence.
+- Allow Live Monitor to be opened directly from individual TXT or IBW region entries while retaining the existing file-level actions.
+
+### Fixed
+- Recover strong core lines that could previously be missed when broad survey peak detection placed a provisional maximum away from the true local peak, including Na 1s in spectra where Na 2s and Na 2p already establish sodium.
+- Make Clear all reliably uncheck every checkable item in the Loaded files tree, including grouped/auto-tristate entries.
+
 ## 0.12.1 - 2026-10-02
 
 ### Added

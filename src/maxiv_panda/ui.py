@@ -1616,10 +1616,10 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
         action = menu.addAction("Show metadata")
         live_action = None
         live_region_actions: dict[object, tuple[int, str]] = {}
-        file_path = ""
+        file_path = str(metadata.get("file_path", "") or "")
         reload_action = None
-        if str(metadata.get("metadata_scope", "")) == "file":
-            file_path = str(metadata.get("file_path", "") or "")
+        metadata_scope = str(metadata.get("metadata_scope", ""))
+        if metadata_scope == "file":
             reload_action = menu.addAction("Reload from disk")
             if file_path.lower().endswith(".ibw"):
                 live_action = menu.addAction("Open live monitor")
@@ -1650,6 +1650,17 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
                     live_action = menu.addAction("Open live monitor")
                     if regions:
                         live_region_actions[live_action] = regions[0]
+        elif metadata_scope == "region" and file_path.lower().endswith((".ibw", ".txt")):
+            # Region nodes are the format-independent Live Monitor target.
+            # The parser stores region_index as 1-based metadata, while the
+            # live-monitor stack uses a 0-based index.  Prefer the node's
+            # actual sibling position so this remains correct for restored
+            # snapshots and any future parser representation.
+            parent = item.parent()
+            region_index = parent.indexOfChild(item) if parent is not None else 0
+            region_name = str(metadata.get("region_name") or item.text(0) or f"Region {region_index + 1}").strip()
+            live_action = menu.addAction("Open live monitor")
+            live_region_actions[live_action] = (max(0, int(region_index)), region_name)
         chosen = menu.exec(self.tree.viewport().mapToGlobal(pos))
         if chosen is action:
             self._show_tree_item_metadata(item)

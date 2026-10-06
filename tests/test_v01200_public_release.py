@@ -6,8 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_public_version_and_metadata():
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     version = (ROOT / "src/maxiv_panda/version.py").read_text(encoding="utf-8")
-    assert 'version = "0.12.1"' in pyproject
-    assert '__version__ = "0.12.1"' in version
+    assert 'version = "0.12.2"' in pyproject
+    assert '__version__ = "0.12.2"' in version
     assert 'name = "Alexei Preobrajenski"' in pyproject
     assert 'Repository = "https://github.com/alexeip100/maxiv-panda"' in pyproject
 
@@ -21,7 +21,7 @@ def test_public_identity_files_are_consistent():
     assert phrase in readme
     assert phrase in actions
     assert "Alexei Preobrajenski, MAX IV Laboratory" in license_text
-    assert 'version: 0.12.1' in cff
+    assert 'version: 0.12.2' in cff
     assert 'affiliation: "MAX IV Laboratory"' in cff
     assert "Photoemission Analysis, Normalization and Data Assessment" in cff
 
@@ -52,7 +52,9 @@ def test_whats_new_is_real_help_page():
     assert "Unified loading and analysis of **Scienta/SES TXT**, **Igor IBW**, and **SPECS/SpecsLab Prodigy XY** data." in text
     assert "Version 0.12.0 establishes the first public PANDA baseline." in text
     release_sections = [line for line in text.splitlines() if line.startswith("## PANDA ")]
-    assert release_sections == ["## PANDA 0.12.1", "## PANDA 0.12.0"]
+    assert release_sections[:3] == ["## PANDA 0.12.2", "## PANDA 0.12.1", "## PANDA 0.12.0"]
+    assert len(release_sections) <= 5
+    assert release_sections[-1] == "## PANDA 0.12.0"
     assert len(release_sections) <= 5
 
 
