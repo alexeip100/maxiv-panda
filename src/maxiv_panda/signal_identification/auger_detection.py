@@ -277,17 +277,19 @@ def _odd_points(width_eV: float, step_eV: float, minimum: int = 3) -> int:
     return points
 
 
-def _prepare_auger_trace(x: np.ndarray, y: np.ndarray, pe_lines: list[tuple[float, str]]) -> np.ndarray:
-    """Interpolate narrow PE peaks without erasing broad PE/Auger overlap.
+def _prepare_auger_trace(x: np.ndarray, y: np.ndarray, pe_lines: list[tuple[float, str, str]]) -> np.ndarray:
+    """Interpolate PE peaks without turning their residual flanks into Auger bands.
 
-    Transition-metal 2p families are broad and can sit on top of O KLL.  Only
-    their sharp apex is suppressed; the surrounding broad-scale intensity is
-    retained so a coincident Auger envelope can still be recognised.
+    Broad transition-metal 2p families can genuinely overlap O KLL, so only
+    their sharp apex is suppressed.  Ordinary 2p lines such as S 2p are
+    treated like other narrow core levels and receive the wider mask.
     """
     y_test = np.asarray(y, dtype=float).copy()
     pe_mask = np.zeros(x.shape, dtype=bool)
-    for energy, line in pe_lines:
-        width = 1.25 if str(line).startswith("2p") else 3.5
+    transition_metals = {"Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu"}
+    for energy, line, element in pe_lines:
+        is_transition_metal_2p = str(line).startswith("2p") and str(element) in transition_metals
+        width = 1.25 if is_transition_metal_2p else 3.5
         pe_mask |= np.abs(x - float(energy)) <= width
     keep = ~pe_mask
     if np.any(pe_mask) and np.count_nonzero(keep) >= 7:
@@ -702,7 +704,7 @@ def _broad_auger_assignments(
     x, y = x[order], y[order]
     global_span = max(float(np.nanmax(y) - np.nanmin(y)), 1.0)
     pe_lines = [
-        (float(assignment.peak.energy), str(assignment.best.line))
+        (float(assignment.peak.energy), str(assignment.best.line), str(assignment.best.element))
         for assignment in assignments
         if assignment.best is not None and assignment.best.kind == "PE" and assignment.best.confident
     ]
@@ -733,6 +735,26 @@ def _broad_auger_assignments(
     for key, islands in priors.items():
         detected: list[_BroadFeature] = []
         for prior in islands:
+            # A narrow, isolated Auger reference island that lies directly on
+            # top of a confidently identified PE line from another element is
+            # not experimentally distinguishable in an ordinary survey.  Do
+            # not let residual PE tails or nearby contamination peaks create a
+            # second, misleading Auger assignment there.  Broad/multi-centre
+            # Auger islands are deliberately retained because genuine Auger
+            # envelopes can overlap narrow PE lines (for example Na KLL and
+            # S 2s in the present regression spectra).
+            narrow_isolated = (
+                (prior.core_hi - prior.core_lo) <= 8.0
+                and len(prior.reference_centers) <= 2
+            )
+            if narrow_isolated:
+                obscured = any(
+                    pe_element != key[0]
+                    and min(abs(float(pe_energy) - float(center)) for center in prior.reference_centers) <= 5.0
+                    for pe_energy, _pe_line, pe_element in pe_lines
+                )
+                if obscured:
+                    continue
             detected.extend(_detect_features_for_prior(
                 prior=prior,
                 x=x,

@@ -36,9 +36,11 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QStyle,
     QStyleOptionTab,
+    QStyleOptionViewItem,
     QStylePainter,
     QToolButton,
     QToolTip,
+    QColorDialog,
 )
 from maxiv_panda.silent_message_box import SilentMessageBox as QMessageBox
 
@@ -233,7 +235,7 @@ class PlotArea(MapPlotMixin, QWidget):
         layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
 
-        self.clear("Load a TXT or IBW file to begin")
+        self.clear("Load a TXT, IBW, or XY file to begin")
 
 
 
@@ -562,7 +564,7 @@ class PlotArea(MapPlotMixin, QWidget):
         self.fig.clear()
         self.ax = self.fig.add_subplot(111)
         if not payloads and not images:
-            self.clear("Load a TXT or IBW file to begin")
+            self.clear("Load a TXT, IBW, or XY file to begin")
             return []
 
         self._map_cross_state = None
@@ -1231,6 +1233,15 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
             self.selected_tree.itemPressed.connect(self._on_selected_tree_item_pressed)
         except Exception:
             pass
+        # Raw Data and Processed Data share this Selected curves tree.  Expose
+        # curve-color editing here so color choice is available upstream of
+        # Plotted Data and is independent of the route used to select a curve.
+        self.selected_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.selected_tree.customContextMenuRequested.connect(self._show_selected_tree_context_menu)
+        # Handle color-swatch double-clicks from the viewport mouse event itself.
+        # itemDoubleClicked does not provide the click coordinates and using the
+        # later global cursor position proved unreliable on Windows/Qt6.
+        self.selected_tree.viewport().installEventFilter(self)
 
         self.data_view_splitter.addWidget(plot_container)
         self.data_view_splitter.addWidget(self.selected_tree)
@@ -1869,6 +1880,127 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
         """
         self._last_selected_tree_press = (item, column)
 
+    def _selected_tree_color_swatch_rect(self, item: QTreeWidgetItem, column: int) -> QRect:
+        """Return the painted color-icon rectangle for one selected-curve row."""
+        if column != 0 or item is None or item.parent() is None:
+            return QRect()
+        try:
+            index = self.selected_tree.indexFromItem(item, column)
+            if not index.isValid():
+                return QRect()
+            option = QStyleOptionViewItem()
+            option.rect = self.selected_tree.visualRect(index)
+            option.widget = self.selected_tree
+            self.selected_tree.itemDelegate(index).initStyleOption(option, index)
+            return self.selected_tree.style().subElementRect(
+                QStyle.SubElement.SE_ItemViewItemDecoration,
+                option,
+                self.selected_tree.viewport(),
+            )
+        except Exception:
+            return QRect()
+
+    def _selected_tree_checkbox_rect(self, item: QTreeWidgetItem, column: int) -> QRect:
+        """Return the painted checkbox rectangle for one selected-curve row."""
+        if column != 0 or item is None:
+            return QRect()
+        try:
+            index = self.selected_tree.indexFromItem(item, column)
+            if not index.isValid():
+                return QRect()
+            option = QStyleOptionViewItem()
+            option.rect = self.selected_tree.visualRect(index)
+            option.widget = self.selected_tree
+            self.selected_tree.itemDelegate(index).initStyleOption(option, index)
+            return self.selected_tree.style().subElementRect(
+                QStyle.SubElement.SE_ItemViewItemCheckIndicator,
+                option,
+                self.selected_tree.viewport(),
+            )
+        except Exception:
+            return QRect()
+
+    def _selected_tree_viewport_double_click(self, event) -> bool:
+        """Open the color chooser when a selected curve row is double-clicked.
+
+        Any left-button double-click on an individual curve row opens the color
+        chooser, except a double-click on the checkbox itself.  Group rows are
+        intentionally ignored.  This is more robust than trying to hit-test the
+        small painted color swatch across Qt/Windows DPI and style variations.
+        """
+        try:
+            if event.button() != Qt.MouseButton.LeftButton:
+                return False
+            pos = event.position().toPoint()
+            item = self.selected_tree.itemAt(pos)
+            if item is None or item.parent() is None:
+                return False
+            index = self.selected_tree.indexAt(pos)
+            if not index.isValid() or index.column() != 0:
+                return False
+            key = item.data(0, self.ROLE_KEY)
+            payload = item.data(0, self.ROLE_PAYLOAD)
+            if not isinstance(key, str) or not key or not isinstance(payload, PlotPayload):
+                return False
+
+            checkbox = self._selected_tree_checkbox_rect(item, 0)
+            if checkbox.isValid() and not checkbox.isEmpty() and checkbox.contains(pos):
+                return False
+
+            self._choose_selected_curve_color(item)
+            return True
+        except Exception:
+            return False
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        if watched is getattr(self, "selected_tree", None).viewport() if hasattr(self, "selected_tree") else False:
+            if event.type() == QEvent.Type.MouseButtonDblClick:
+                if self._selected_tree_viewport_double_click(event):
+                    return True
+        return super().eventFilter(watched, event)
+
+    def _show_selected_tree_context_menu(self, pos: QPoint) -> None:
+        """Offer curve-specific display actions in Raw/Processed Selected curves."""
+        item = self.selected_tree.itemAt(pos)
+        if item is None or item.parent() is None:
+            return
+        key = item.data(0, self.ROLE_KEY)
+        payload = item.data(0, self.ROLE_PAYLOAD)
+        if not isinstance(key, str) or not key or not isinstance(payload, PlotPayload):
+            return
+
+        menu = QMenu(self.selected_tree)
+        color_action = menu.addAction("Choose curve color...")
+        chosen = menu.exec(self.selected_tree.viewport().mapToGlobal(pos))
+        if chosen is color_action:
+            self._choose_selected_curve_color(item)
+
+    def _choose_selected_curve_color(self, item: QTreeWidgetItem) -> None:
+        """Choose and apply the persistent Raw/Processed color of one curve."""
+        key = item.data(0, self.ROLE_KEY)
+        if not isinstance(key, str) or not key:
+            return
+
+        current = self._curve_color_map.get(key, "#1f77b4")
+        try:
+            initial = QColor(mpl_color_to_hex(current))
+        except Exception:
+            initial = QColor("#1f77b4")
+        color = QColorDialog.getColor(initial, self, "Choose curve color")
+        if not color.isValid():
+            return
+
+        self._curve_color_map[key] = color.name()
+        # Update the tree swatch immediately even when this curve is currently
+        # unchecked; the normal plot refresh will keep it synchronized later.
+        try:
+            pix = QPixmap(12, 12)
+            pix.fill(color)
+            item.setIcon(0, QIcon(pix))
+        except Exception:
+            pass
+        self._update_plot_from_selected()
+
     def _ensure_selected_region(self, file_name: str, region_name: str) -> QTreeWidgetItem:
         """Ensure a region group exists in the selected-curves tree."""
         return self._selected_tree_manager.ensure_region(file_name, region_name)
@@ -2163,10 +2295,26 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
         self._apply_curve_color_icons(items_in_order, used_colors)
 
         signal_controller = getattr(self, "_signal_identification", None)
+        raw_identification_view = False
+        try:
+            raw_identification_view = bool(
+                getattr(self, "tabs", None) is not None
+                and getattr(self, "raw_data_tab", None) is not None
+                and self.tabs.currentWidget() is self.raw_data_tab
+            )
+        except Exception:
+            raw_identification_view = False
+
         if signal_controller is not None:
-            signal_controller.refresh_availability()
-            signal_controller.draw_annotations()
-        else:
+            # Signal identification is a Raw Data overlay.  Processed Data shares
+            # the same Matplotlib axes, so plot_many() above naturally removes the
+            # artists there; deliberately leave the controller/cache untouched so
+            # returning to Raw Data restores the existing assignments without a
+            # needless re-identification pass.
+            if raw_identification_view:
+                signal_controller.refresh_availability()
+                signal_controller.draw_annotations()
+        elif raw_identification_view:
             refresh_signal_controls = getattr(self, "_refresh_signal_identification_availability", None)
             if callable(refresh_signal_controls):
                 refresh_signal_controls()

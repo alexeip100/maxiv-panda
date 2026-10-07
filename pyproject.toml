@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "maxiv-panda"
-version = "0.12.2"
+version = "0.12.3"
 description = "PANDA: Python software for visualization, processing, analysis, and fitting of PES/XPS data."
 readme = "README.md"
 requires-python = ">=3.11"

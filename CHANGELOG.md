@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.3 - 2026-10-07
+
+### Changed
+- Restrict signal-identification annotations to Raw Data while preserving the current identification state across Raw/Processed tab changes.
+- Use one region-based Selected curves grouping for ordinary spectra regardless of selection path, and allow Raw/Processed display colours to be changed directly from individual curve rows.
+
+### Fixed
+- Make element-family recovery order-independent so companion-supported lines such as Na 1s and overlapping S 2s are identified more consistently across similar survey spectra.
+- Reduce false duplicate chemical-state pairs and isolated Auger assignments caused by weak accidental shoulders or overlap with confidently identified PE lines.
+
 ## 0.12.2 - 2026-10-06
 
 ### Changed

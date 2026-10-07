@@ -551,7 +551,7 @@ class UiProcessedDataMixin(UiMapControlsMixin):
                         file_name = ""
                 base_title = str(getattr(payload, "title", "") or item.text(0) or "Curve")
                 title = source_aware_curve_title(base_title, file_name)
-                named_payloads.append(type(payload)(
+                named = type(payload)(
                     title=title,
                     x=payload.x,
                     y=payload.y,
@@ -559,7 +559,16 @@ class UiProcessedDataMixin(UiMapControlsMixin):
                     ylabel=payload.ylabel,
                     energy_scale=getattr(payload, "energy_scale", "Unknown"),
                     metadata=dict(getattr(payload, "metadata", {}) or {}),
-                ))
+                )
+                # Preserve a user-selected Raw/Processed curve color when the
+                # curve becomes an independent Plotted Data snapshot.
+                try:
+                    selected_color = getattr(self, "_curve_color_map", {}).get(str(key))
+                    if selected_color:
+                        setattr(named, "color", str(selected_color))
+                except Exception:
+                    pass
+                named_payloads.append(named)
             payloads = named_payloads
 
             # Plotted Data receives exactly the numerical representation shown

@@ -1,5 +1,17 @@
 # What’s new in PANDA
 
+## PANDA 0.12.3
+
+PANDA 0.12.3 improves the consistency of survey signal identification and makes curve handling in Raw and Processed Data more predictable.
+
+### Changed
+- **Signal identification is now a Raw Data-only overlay.** Switching to Processed Data keeps the spectrum visible but hides PE/Auger labels and shaded identification regions; returning to Raw Data restores the current identification when possible.
+- **Selected curves now use one consistent region-based grouping for ordinary spectra**, regardless of whether they were selected individually or with **All in region**. Curve display colours can also be changed directly from the Selected curves list in Raw and Processed Data by double-clicking an individual curve row (except its checkbox).
+
+### Fixed
+- **Element-family recovery is more consistent across similar surveys.** Deep or partially overlapping lines such as Na 1s and S 2s are no longer dependent on the order in which companion lines were first detected.
+- **False duplicate chemical-state and Auger assignments are reduced.** Weak accidental shoulders are less likely to be promoted into a second core-level pair, and narrow Auger candidates overlapping a confident photoelectron line are handled more conservatively.
+
 ## PANDA 0.12.2
 
 PANDA 0.12.2 improves automatic signal identification in survey spectra, with stronger use of consistency between core levels of the same element.

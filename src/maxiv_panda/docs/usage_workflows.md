@@ -211,7 +211,8 @@ Use this workflow after the raw spectrum has been inspected and the energy scale
 7. Choose the appropriate **Reference mode**. **Automatic (prefer solids)** is suitable for most solid samples; use **Gas phase** for molecular spectra.
 8. Keep **Include Auger lines** enabled when photon energy is known. Reference positions provide broad search ranges only. When a broad measured Auger-like excess is found, the observed component is shaded with a strong central core and fading, potentially asymmetric tails. Several separated components may share one family label.
 9. Click **Apply and identify** to refresh both the plot and the result table while keeping the identification panel open. Adjust the settings and apply again as needed; click **Close** when finished. Peaks without sufficiently reliable assignments remain unlabelled. For some families, such as Ca 2p, the solid-state reference fixes the main line position while the atomic table supplies only the doublet separation. A strong spin-orbit component can trigger a more sensitive search for its partner, but the partner still needs an independent local maximum above the measured noise. A weak but coherent peak can therefore be labelled, whereas a random fluctuation at an expected reference energy cannot. PE guide lines are placed at the measured maxima rather than at the database positions. Auger regions require a broad, noise-significant measured excess after accepted narrow PE lines are suppressed; element identification alone does not activate them. The faded edges communicate uncertain tails and must not be read as exact compound-specific band limits.
-10. Uncheck **Identify signals** to remove all annotations.
+10. Signal-identification annotations are shown only in **Raw Data**. Switching to **Processed Data** hides the labels, guide lines, and shaded regions while preserving the identification state; returning to **Raw Data** restores them when the same spectrum remains active.
+11. Uncheck **Identify signals** to remove all annotations.
 
 ### How to read the result table
 - **Peak** is the energy of the detected maximum on the displayed BE or KE scale.
@@ -233,13 +234,13 @@ Prepare spectra before fitting and correct their energy scale from Fermi-edge or
 
 
 ## Apply simple processing before fitting
-Use **Processed Data** when the displayed spectra need simple treatment before calibration or fitting. Hover the vertical **Intensity** axis title for a hint and double-click it when you need to compare ordinary spectra in **Counts** or **CPS**. The Processed Data choice follows spectra into downstream plotting/fitting/calibration workflows, while MAP representations remain in counts.
+Use **Processed Data** when the displayed spectra need simple treatment before calibration or fitting. Signal-identification labels are intentionally not shown here; return to **Raw Data** whenever you want to inspect the current assignments. Hover the vertical **Intensity** axis title for a hint and double-click it when you need to compare ordinary spectra in **Counts** or **CPS**. The Processed Data choice follows spectra into downstream plotting/fitting/calibration workflows, while MAP representations remain in counts.
 
 Typical tasks include:
 
 - choosing the displayed energy scale;
 - applying basic intensity normalization;
-- retaining signal-identification annotations while the displayed intensity is normalized;
+- checking the processed spectrum without Raw Data identification overlays;
 - preparing spectra for calibration or fitting;
 - checking whether processed curves still look physically reasonable.
 

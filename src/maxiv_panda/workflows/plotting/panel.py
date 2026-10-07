@@ -374,8 +374,10 @@ class PlottedDataPanel(QWidget):
         snapshots: list[PlottedCurve] = []
         used_names = {curve.title for curve in self._curves}
         for idx, payload in enumerate(curves):
+            preferred_color = getattr(payload, "color", None)
             snapshot = PlottedCurve.from_payload(
-                payload, color=self._DEFAULT_COLORS[(start + idx) % len(self._DEFAULT_COLORS)]
+                payload,
+                color=(preferred_color if preferred_color else self._DEFAULT_COLORS[(start + idx) % len(self._DEFAULT_COLORS)]),
             )
             if snapshot is not None:
                 base = snapshot.title or "Curve"

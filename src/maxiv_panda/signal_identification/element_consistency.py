@@ -680,6 +680,20 @@ def _recover_paired_chemical_states(
         if best_pair is None:
             continue
         p1, p2, s1, s2, state_shift = best_pair[1]
+
+        # A matching separation alone is not enough to claim a second chemical
+        # state.  Weak shoulders/noise can accidentally reproduce the same
+        # p/s spacing (notably S 2p/2s in survey spectra).  Require the weaker
+        # component to carry a meaningful fraction of the dominant component
+        # in both shells before promoting a four-line two-state solution.
+        p_strengths = sorted((float(p1.prominence), float(p2.prominence)))
+        s_strengths = sorted((float(s1.prominence), float(s2.prominence)))
+        if p_strengths[1] <= 0.0 or s_strengths[1] <= 0.0:
+            continue
+        if (p_strengths[0] / p_strengths[1] < 0.15 or
+                s_strengths[0] / s_strengths[1] < 0.15):
+            continue
+
         # Replace provisional single-state or duplicate assignments in these
         # windows with the four mutually supporting measured components.
         kept = []
@@ -782,6 +796,16 @@ def _recover_same_shell_sp_pairs(
             else:
                 s_floor = base_floor
             s_peak = _find_feature(payload, target_s, half_width=2.5, min_height=s_floor)
+            if s_peak is None:
+                # An ns companion can sit on top of a broad Auger envelope.
+                # In that case the smoothed local-background detector may
+                # reject a genuine measured shoulder.  Fall back to a raw
+                # local maximum only inside this family-constrained search;
+                # the expected np/ns separation is still enforced below.
+                raw_peak = _raw_local_maximum(payload, target_s, half_width=2.5)
+                raw_floor = max(base_floor, 0.0005 * span)
+                if raw_peak is not None and float(raw_peak.prominence) >= raw_floor:
+                    s_peak = raw_peak
             if s_peak is None or abs(float(s_peak.energy) - float(p_peak.energy)) < 1.0:
                 continue
             observed_separation = float(s_peak.energy) - float(p_peak.energy)
@@ -1926,6 +1950,14 @@ def apply_element_consistency(
         result, payload, selected_elements=selected_elements,
         energy_scale=energy_scale, photon_energy=photon_energy, sample_mode=sample_mode,
     )
+    # Complete obvious within-shell family relationships before asking
+    # whether an element is established strongly enough for cross-shell
+    # recovery.  This makes the result independent of which member happened
+    # to survive the first single-line matching pass.
+    result = _recover_p_from_s(
+        result, payload, energy_scale=energy_scale,
+        photon_energy=photon_energy, sample_mode=sample_mode,
+    )
     # Once two independent PE families establish an element, search other
     # accessible core shells with a deliberately broad cross-section-informed
     # intensity prior.  This is the generic family pass needed for cases such
@@ -1933,10 +1965,6 @@ def apply_element_consistency(
     result = _recover_cross_shell_family_members(
         result, payload, selected_elements=selected_elements,
         energy_scale=energy_scale, photon_energy=photon_energy, sample_mode=sample_mode,
-    )
-    result = _recover_p_from_s(
-        result, payload, energy_scale=energy_scale,
-        photon_energy=photon_energy, sample_mode=sample_mode,
     )
     result = _recover_paired_chemical_states(
         result, payload, selected_elements=selected_elements,

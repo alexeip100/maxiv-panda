@@ -142,7 +142,7 @@ class UiActionsMixin:
             sync_processed()
         self._curve_color_map.clear()
         self._next_color_index = 0
-        self.plot_area.clear("Load a TXT or IBW file to begin")
+        self.plot_area.clear("Load a TXT, IBW, or XY file to begin")
 
         # Reset group-loading controls.
         try:
@@ -336,6 +336,14 @@ class UiActionsMixin:
             "map_states": map_states,
             "all_in_region_enabled": bool(getattr(getattr(self, "cb_all_in_region", None), "isChecked", lambda: False)()),
             "all_in_region_target": str(getattr(self, "_selected_target_region", lambda: "")() or ""),
+            # Raw/Processed curve colors are part of the workspace display state.
+            # Store the key->color mapping in the existing flexible view payload
+            # so schema-1 sessions remain backward compatible.
+            "curve_colors": {
+                str(k): str(v)
+                for k, v in dict(getattr(self, "_curve_color_map", {}) or {}).items()
+                if str(k) in getattr(self, "_selected_by_key", {})
+            },
             "map_view_mode": (
                 "lines" if bool(getattr(getattr(self, "rb_map_lines", None), "isChecked", lambda: False)()) else
                 "roi" if bool(getattr(getattr(self, "rb_map_roi", None), "isChecked", lambda: False)()) else
@@ -893,6 +901,14 @@ class UiActionsMixin:
         # compatible and are repaired below by attaching processed children to
         # the actual restored raw-source parent.
         view = dict(manifest.processed_view or {})
+        try:
+            saved_colors = view.get("curve_colors", {})
+            if isinstance(saved_colors, dict):
+                self._curve_color_map.update(
+                    {str(k): str(v) for k, v in saved_colors.items() if str(k) and str(v)}
+                )
+        except Exception:
+            pass
         try:
             grouped = bool(view.get("all_in_region_enabled", False))
             target = str(view.get("all_in_region_target") or "")

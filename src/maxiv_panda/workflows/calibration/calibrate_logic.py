@@ -430,6 +430,17 @@ class CalibrationLogic:
                 except Exception:
                     pass
 
+                # An E-calibrated derivative represents the same measured
+                # spectrum on a shifted energy axis, so inherit the source
+                # curve's Raw/Processed color initially.  The derivative keeps
+                # its own key and can subsequently be recolored independently.
+                try:
+                    source_color = getattr(mw, "_curve_color_map", {}).get(str(raw_key))
+                    if source_color:
+                        mw._curve_color_map[curve_id] = str(source_color)
+                except Exception:
+                    pass
+
                 applied += 1
             except Exception:
                 continue

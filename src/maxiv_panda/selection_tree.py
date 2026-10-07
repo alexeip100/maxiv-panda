@@ -76,13 +76,21 @@ def determine_selected_parent_file(
     all_in_region_enabled: bool,
     target_region: str,
 ) -> str:
-    if should_group_under_region(
-        all_in_region_enabled=all_in_region_enabled,
-        target_region=target_region,
-        region_name=region_name,
-        meta=meta,
-        label=label,
-    ):
+    """Return the canonical Selected-curves parent identity.
+
+    Ordinary Average/Trace spectra are always grouped by region name,
+    independent of *how* the user selected them.  This keeps the right-hand
+    Selected curves tree stable for individual checkbox selection, All in
+    region, session restoration, and other selection paths.
+
+    Iteration leaves deliberately retain their real source-file parent because
+    source identity defines a coherent physical sequence for MAP mode.
+
+    ``all_in_region_enabled`` and ``target_region`` are retained in the
+    signature for API/backward compatibility with callers; grouping no longer
+    depends on that transient UI state.
+    """
+    if is_average_or_trace(meta, label):
         return '__GROUP__'
     return file_name
 

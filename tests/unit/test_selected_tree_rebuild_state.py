@@ -197,3 +197,44 @@ def test_map_button_is_removed_if_group_shrinks_back_to_one_curve(monkeypatch):
     assert button.set_checked_calls == [False]
     assert key not in manager.region_map_buttons
     assert manager.selected_tree.removed == [(parent, 1)]
+
+
+def test_average_and_trace_grouping_is_independent_of_all_in_region_mode(monkeypatch):
+    module = _load_selection_tree_without_qt(monkeypatch)
+
+    common = dict(
+        file_name="XPS_0021.txt",
+        region_name="Survey 1200 eV",
+        target_region="Survey 1200 eV",
+    )
+    assert module.determine_selected_parent_file(
+        **common,
+        meta={"kind": "trace"},
+        label="Trace",
+        all_in_region_enabled=False,
+    ) == "__GROUP__"
+    assert module.determine_selected_parent_file(
+        **common,
+        meta={"kind": "trace"},
+        label="Trace",
+        all_in_region_enabled=True,
+    ) == "__GROUP__"
+    assert module.determine_selected_parent_file(
+        **common,
+        meta={"kind": "average"},
+        label="Average",
+        all_in_region_enabled=False,
+    ) == "__GROUP__"
+
+
+def test_iteration_grouping_retains_real_source_file_for_map_semantics(monkeypatch):
+    module = _load_selection_tree_without_qt(monkeypatch)
+    parent = module.determine_selected_parent_file(
+        file_name="XPS_0008.txt",
+        region_name="C1s 1200 eV",
+        meta={"kind": "iteration", "iteration": 3},
+        label="Iteration 3",
+        all_in_region_enabled=True,
+        target_region="C1s 1200 eV",
+    )
+    assert parent == "XPS_0008.txt"

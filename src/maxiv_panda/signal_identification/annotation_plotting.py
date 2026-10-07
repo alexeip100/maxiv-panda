@@ -13,6 +13,16 @@ from .spectrum_context import extract_photon_energy
 
 def draw_signal_annotations(controller: Any) -> None:
     self = controller
+    # Identification is intentionally a Raw Data-only overlay.  Raw and
+    # Processed Data share the same axes, but the cached assignments belong to
+    # the raw spectrum and must not be redrawn or recomputed on Processed Data.
+    try:
+        tabs = getattr(self.window, "tabs", None)
+        raw_tab = getattr(self.window, "raw_data_tab", None)
+        if tabs is not None and raw_tab is not None and tabs.currentWidget() is not raw_tab:
+            return
+    except Exception:
+        return
     if not self.window.cb_identify_signals.isChecked() or not self.assignments:
         return
     current = self.current_single_curve()
@@ -23,11 +33,9 @@ def draw_signal_annotations(controller: Any) -> None:
         self.identify(show_messages=False)
     ax = self.window.plot_area.ax
 
-    # Annotation positions must follow the curve as it is currently displayed.
-    # The Processed Data tab may show a normalized copy of the payload while
-    # identification remains tied to the original spectrum.  Reuse the plotted
-    # line data when its X grid matches the active payload; otherwise fall back
-    # to the original payload arrays.
+    # Annotation positions must follow the curve as it is currently displayed
+    # in Raw Data.  Reuse the plotted line data when its X grid matches the
+    # active payload; otherwise fall back to the original payload arrays.
     try:
         display_x = np.asarray(_payload.x, dtype=float).reshape(-1)
         display_y = np.asarray(_payload.y, dtype=float).reshape(-1)
