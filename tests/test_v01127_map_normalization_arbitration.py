@@ -107,5 +107,5 @@ def test_lines_and_roi_renderers_keep_normalization_callback():
     respes_start = src.index("def _plot_respes_map") if "def _plot_respes_map" in src else len(src)
     lines = src[lines_start:roi_start]
     roi = src[roi_start:respes_start]
-    assert "_draw_map_normalization_band(ax_map, norm_interval, norm_mode, norm_callback)" in lines
-    assert "_draw_map_normalization_band(ax_map, norm_interval, norm_mode, norm_callback)" in roi
+    assert "_draw_physical_map_normalization_region(" in lines
+    assert "_draw_physical_map_normalization_region(" in roi

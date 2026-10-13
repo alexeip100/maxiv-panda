@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -143,6 +144,31 @@ def parse_structured_txt(path: Path) -> ParsedTXT:
     This is designed to be tolerant: it will parse whatever indexed sections exist,
     and it records warnings rather than failing hard when something doesn't match.
     """
+
+    # A PANDA matrix is intentionally distinct from a Scienta TXT export,
+    # but both become the same ParsedTXT/RegionData model after import.
+    from .map_exchange import MAGIC, read_ascii_map
+    with path.open("r", encoding="utf-8-sig", errors="replace") as stream:
+        first = stream.readline().rstrip("\r\n")
+    if first == MAGIC:
+        source = read_ascii_map(path)
+        reg = RegionData(index=1)
+        x = np.asarray(source.electron_energy, dtype=float)
+        z = np.asarray(source.intensity, dtype=float)
+        reg.region_meta = {
+            "Region Name": str(source.metadata.get("title", "Imported 2D map")),
+            "Dimension 1 name": source.electron_label,
+            "Dimension 1 size": str(len(x)),
+            "Dimension 2 name": source.secondary_label,
+            "Dimension 2 size": str(len(source.secondary_energy)),
+            "Dimension 2 scale": " ".join(format(v, ".17g") for v in source.secondary_energy),
+        }
+        reg.info_meta = {"Energy Scale": (
+            "Kinetic" if "kinetic" in source.electron_label.lower() else
+            "Binding" if "binding" in source.electron_label.lower() else "Unknown"
+        ), "PANDA processing provenance": json.dumps(source.metadata, default=str)}
+        reg.data = np.column_stack([x, z.T])
+        return ParsedTXT(path=path, file_info={"Number of Regions": "1"}, regions=[reg])
 
     text = path.read_text(encoding="utf-8", errors="replace").splitlines()
 

@@ -365,6 +365,12 @@ class UiActionsMixin:
             "map_norm_area_high": getattr(self, "_map_norm_area_high", None),
             "map_norm_active_interval": list(getattr(self, "_map_norm_active_interval", None) or []),
             "map_norm_show_region": bool(getattr(self, "_map_norm_show_region", True)),
+            "respes_preedge_enabled": bool(getattr(self, "_respes_preedge_enabled", False)),
+            "respes_preedge_center": getattr(self, "_respes_preedge_center", None),
+            "respes_preedge_width": getattr(self, "_respes_preedge_width", None),
+            "respes_cut_type": str(getattr(self, "_respes_cut_type", "none")),
+            "respes_cut_position": getattr(self, "_respes_cut_position", None),
+            "respes_cut_width": getattr(self, "_respes_cut_width", None),
             "map_lines_positions": [
                 {"title": str(k[0]), "xlabel": str(k[1]), "x": float(v.get("x", 0.0)), "y": float(v.get("y", 0.0))}
                 for k, v in dict(getattr(self, "_map_lines_position_memory", {}) or {}).items()
@@ -1088,7 +1094,7 @@ class UiActionsMixin:
             # for a fresh map and opens the settings dialog, neither of which
             # is appropriate during a quiet session restore.
             map_norm_mode = str(view.get("map_norm_mode") or "none")
-            if map_norm_mode not in {"none", "at_be", "area"}:
+            if map_norm_mode not in {"none", "at_be", "at_ke", "at_hv", "area"}:
                 map_norm_mode = "none"
             self._map_norm_mode = map_norm_mode
             saved_context = view.get("map_norm_context_key")
@@ -1102,6 +1108,14 @@ class UiActionsMixin:
             interval = view.get("map_norm_active_interval")
             self._map_norm_active_interval = tuple(interval) if isinstance(interval, (list, tuple)) and len(interval) == 2 else None
             self._map_norm_show_region = bool(view.get("map_norm_show_region", True))
+            self._respes_preedge_center = view.get("respes_preedge_center")
+            self._respes_preedge_width = view.get("respes_preedge_width")
+            self._respes_preedge_enabled = bool(view.get("respes_preedge_enabled", False)) and map_norm_mode == "none"
+            saved_cut = str(view.get("respes_cut_type", "none") or "none")
+            if saved_cut in {"none", "constant_be", "constant_ke", "constant_hv"}:
+                self._respes_cut_type = saved_cut
+                self._respes_cut_position = view.get("respes_cut_position")
+                self._respes_cut_width = view.get("respes_cut_width")
             norm_combo = getattr(self, "cb_map_normalization", None)
             if norm_combo is not None:
                 idx = norm_combo.findData(map_norm_mode)

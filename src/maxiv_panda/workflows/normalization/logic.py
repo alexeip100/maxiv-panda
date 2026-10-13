@@ -210,3 +210,246 @@ def normalize_map_rows_by_area(
             raise ValueError("The selected range has zero area for at least one row.")
         out[row_idx, :] = y / area
     return out
+
+def normalize_respes_rows_at_binding_energy(
+    x: np.ndarray,
+    z: np.ndarray,
+    photon_energy: np.ndarray,
+    centre_be: float,
+    width_ev: float,
+    *,
+    work_function: float = 4.5,
+    source_axis: str = "be",
+) -> tuple[np.ndarray, tuple[float, float]]:
+    """Normalize a ResPES map to a fixed binding-energy interval.
+
+    The normalization is evaluated on the original measured rectangular map.
+    For a measured kinetic-energy axis, the requested fixed BE interval is
+    converted row by row using ``BE = hnu - KE - work_function``.  For a
+    measured binding-energy axis, the interval is common to all rows.
+
+    Every row must contain the complete requested BE interval.
+    """
+    x = np.asarray(x, dtype=float)
+    z = np.asarray(z, dtype=float)
+    hv = np.asarray(photon_energy, dtype=float)
+    if z.ndim != 2 or x.ndim != 1 or z.shape[1] != x.size or x.size < 2:
+        raise ValueError("Map data have incompatible dimensions.")
+    if hv.ndim != 1 or hv.size != z.shape[0]:
+        raise ValueError("Photon-energy axis is incompatible with the map rows.")
+    if not np.all(np.isfinite(hv)):
+        raise ValueError("Photon-energy axis contains non-finite values.")
+    phi = float(work_function)
+    if not np.isfinite(phi):
+        raise ValueError("Analyzer work function must be finite.")
+
+    finite_x = np.isfinite(x)
+    if np.count_nonzero(finite_x) < 2:
+        raise ValueError("Map energy axis is unavailable.")
+    x_sorted_all = np.sort(x[finite_x])
+    xmin, xmax = float(x_sorted_all[0]), float(x_sorted_all[-1])
+    centre_be = float(centre_be)
+    width_ev = abs(float(width_ev))
+    if not np.isfinite(centre_be) or not np.isfinite(width_ev) or width_ev <= 0.0:
+        raise ValueError("The averaging width must be greater than zero and the binding energy must be finite.")
+    be_low = centre_be - 0.5 * width_ev
+    be_high = centre_be + 0.5 * width_ev
+
+    axis = str(source_axis or "be").strip().lower()
+    if axis not in {"be", "ke"}:
+        raise ValueError("source_axis must be 'be' or 'ke'.")
+    if axis == "be" and (be_low < xmin or be_high > xmax):
+        raise ValueError("The binding-energy normalization interval lies outside the map range.")
+
+    out = np.array(z, dtype=float, copy=True)
+    for row_idx in range(z.shape[0]):
+        y = np.asarray(z[row_idx], dtype=float)
+        valid = finite_x & np.isfinite(y)
+        if np.count_nonzero(valid) < 2:
+            raise ValueError("At least one map row has insufficient finite data.")
+        row_order = np.argsort(x[valid])
+        xx = x[valid][row_order]
+        yy = y[valid][row_order]
+
+        if axis == "be":
+            low_src, high_src = be_low, be_high
+        else:
+            # Fixed BE -> row-dependent KE interval.  Increasing BE
+            # corresponds to decreasing KE at fixed photon energy.
+            low_src = float(hv[row_idx] - phi - be_high)
+            high_src = float(hv[row_idx] - phi - be_low)
+
+        if low_src < float(xx[0]) or high_src > float(xx[-1]):
+            raise ValueError(
+                "The binding-energy normalization interval is unavailable for at least one row."
+            )
+        scale = mean_intensity_over_interval(xx, yy, low_src, high_src)
+        if not np.isfinite(scale) or abs(scale) < 1.0e-15:
+            raise ValueError(
+                "The binding-energy normalization interval has a zero mean for at least one row."
+            )
+        out[row_idx, :] = y / scale
+    return out, (be_low, be_high)
+
+
+def normalize_respes_rows_at_kinetic_energy(
+    x: np.ndarray,
+    z: np.ndarray,
+    photon_energy: np.ndarray,
+    centre_ke: float,
+    width_ev: float,
+    *,
+    work_function: float = 4.5,
+    source_axis: str = "be",
+) -> tuple[np.ndarray, tuple[float, float]]:
+    """Normalize a ResPES map to a fixed kinetic-energy interval.
+
+    The normalization is evaluated on the original measured rectangular map,
+    never on a BE<->KE resampled display map.  For a measured binding-energy
+    axis, the requested fixed KE interval is converted row by row using
+    ``KE = hnu - BE - work_function``.  For a measured kinetic-energy axis,
+    the interval is common to all rows.
+
+    Every row must contain the *complete* requested KE interval.  This strict
+    coverage rule keeps the physical normalization identical for every photon
+    energy and prevents silent partial-window normalization at map edges.
+    """
+    x = np.asarray(x, dtype=float)
+    z = np.asarray(z, dtype=float)
+    hv = np.asarray(photon_energy, dtype=float)
+    if z.ndim != 2 or x.ndim != 1 or z.shape[1] != x.size or x.size < 2:
+        raise ValueError("Map data have incompatible dimensions.")
+    if hv.ndim != 1 or hv.size != z.shape[0]:
+        raise ValueError("Photon-energy axis is incompatible with the map rows.")
+    if not np.all(np.isfinite(hv)):
+        raise ValueError("Photon-energy axis contains non-finite values.")
+    phi = float(work_function)
+    if not np.isfinite(phi):
+        raise ValueError("Analyzer work function must be finite.")
+
+    finite_x = np.isfinite(x)
+    if np.count_nonzero(finite_x) < 2:
+        raise ValueError("Map energy axis is unavailable.")
+    x_sorted_all = np.sort(x[finite_x])
+    xmin, xmax = float(x_sorted_all[0]), float(x_sorted_all[-1])
+    centre_ke = float(centre_ke)
+    width_ev = abs(float(width_ev))
+    if not np.isfinite(centre_ke) or not np.isfinite(width_ev) or width_ev <= 0.0:
+        raise ValueError("The averaging width must be greater than zero and the kinetic energy must be finite.")
+    ke_low = centre_ke - 0.5 * width_ev
+    ke_high = centre_ke + 0.5 * width_ev
+
+    axis = str(source_axis or "be").strip().lower()
+    if axis not in {"be", "ke"}:
+        raise ValueError("source_axis must be 'be' or 'ke'.")
+    if axis == "ke" and (ke_low < xmin or ke_high > xmax):
+        raise ValueError("The kinetic-energy normalization interval lies outside the map range.")
+
+    out = np.array(z, dtype=float, copy=True)
+    for row_idx in range(z.shape[0]):
+        y = np.asarray(z[row_idx], dtype=float)
+        valid = finite_x & np.isfinite(y)
+        if np.count_nonzero(valid) < 2:
+            raise ValueError("At least one map row has insufficient finite data.")
+        row_order = np.argsort(x[valid])
+        xx = x[valid][row_order]
+        yy = y[valid][row_order]
+
+        if axis == "ke":
+            low_src, high_src = ke_low, ke_high
+        else:
+            # Fixed KE -> row-dependent BE interval.  Reversal is intentional:
+            # increasing KE corresponds to decreasing BE at fixed photon energy.
+            low_src = float(hv[row_idx] - phi - ke_high)
+            high_src = float(hv[row_idx] - phi - ke_low)
+
+        if low_src < float(xx[0]) or high_src > float(xx[-1]):
+            raise ValueError(
+                "The kinetic-energy normalization interval is unavailable for at least one row."
+            )
+        scale = mean_intensity_over_interval(xx, yy, low_src, high_src)
+        if not np.isfinite(scale) or abs(scale) < 1.0e-15:
+            raise ValueError(
+                "The kinetic-energy normalization interval has a zero mean for at least one row."
+            )
+        out[row_idx, :] = y / scale
+    return out, (ke_low, ke_high)
+
+
+def normalize_map_to_photon_energy_interval(
+    photon_energy: np.ndarray,
+    z: np.ndarray,
+    centre_hv: float,
+    width_ev: float,
+) -> tuple[np.ndarray, tuple[float, float], np.ndarray]:
+    """Normalize a map point-by-point to an average photon-energy spectrum.
+
+    This implements the ResPES pre-edge normalization discussed for PANDA
+    0.12.4.  A reference spectrum is formed as the energy-weighted mean over
+    the selected photon-energy interval, including linearly interpolated
+    interval boundaries.  Every map row is then divided point-by-point by that
+    reference spectrum.
+
+    Returns ``(normalized_map, interval, reference_spectrum)``.
+    """
+    hv = np.asarray(photon_energy, dtype=float)
+    z = np.asarray(z, dtype=float)
+    if hv.ndim != 1 or z.ndim != 2 or hv.size != z.shape[0] or hv.size < 2:
+        raise ValueError("Photon-energy axis is incompatible with the map rows.")
+    finite_hv = np.isfinite(hv)
+    if np.count_nonzero(finite_hv) < 2:
+        raise ValueError("Photon-energy axis is unavailable.")
+    hv_sorted = np.sort(hv[finite_hv])
+    hv_min, hv_max = float(hv_sorted[0]), float(hv_sorted[-1])
+    interval = normalization_interval_ev(hv_min, hv_max, float(centre_hv), float(width_ev))
+
+    order = np.argsort(hv)
+    hv_ordered = hv[order]
+    z_ordered = z[order, :]
+    reference = np.empty(z.shape[1], dtype=float)
+    for col_idx in range(z.shape[1]):
+        values = np.asarray(z_ordered[:, col_idx], dtype=float)
+        valid = np.isfinite(hv_ordered) & np.isfinite(values)
+        if np.count_nonzero(valid) < 2:
+            raise ValueError("At least one energy channel has insufficient finite data.")
+        hh = hv_ordered[valid]
+        vv = values[valid]
+        if interval[0] < float(hh[0]) or interval[1] > float(hh[-1]):
+            raise ValueError(
+                "The photon-energy normalization interval is unavailable for at least one energy channel."
+            )
+        reference[col_idx] = mean_intensity_over_interval(hh, vv, *interval)
+
+    if np.any(~np.isfinite(reference)) or np.any(np.abs(reference) < 1.0e-15):
+        raise ValueError("The photon-energy reference spectrum contains zero or invalid values.")
+    out = np.asarray(z, dtype=float) / reference[np.newaxis, :]
+    return np.array(out, dtype=float, copy=True), interval, reference
+
+
+def subtract_map_photon_energy_reference(photon_energy, z, centre_hv, width_ev):
+    """Subtract the energy-weighted mean spectrum from every measured map row.
+
+    Unlike division, zero-valued reference channels are valid. This function
+    operates on the measured X grid, independently of the displayed BE/KE axis.
+    """
+    hv = np.asarray(photon_energy, dtype=float)
+    z = np.asarray(z, dtype=float)
+    if hv.ndim != 1 or z.ndim != 2 or hv.size != z.shape[0] or hv.size < 2:
+        raise ValueError("Photon-energy axis is incompatible with the map rows.")
+    if not np.all(np.isfinite(hv)) or len(np.unique(hv)) < 2:
+        raise ValueError("Photon-energy axis must contain distinct finite values.")
+    interval = normalization_interval_ev(float(np.min(hv)), float(np.max(hv)),
+                                         float(centre_hv), float(width_ev))
+    order = np.argsort(hv)
+    hh = hv[order]
+    zz = z[order, :]
+    reference = np.empty(z.shape[1], dtype=float)
+    for col in range(z.shape[1]):
+        valid = np.isfinite(zz[:, col])
+        if np.count_nonzero(valid) < 2:
+            raise ValueError("At least one energy channel has insufficient finite data.")
+        xc, yc = hh[valid], zz[valid, col]
+        if interval[0] < xc[0] or interval[1] > xc[-1]:
+            raise ValueError("Reference interval is unavailable in at least one energy channel.")
+        reference[col] = mean_intensity_over_interval(xc, yc, *interval)
+    return z - reference[np.newaxis, :], interval, reference

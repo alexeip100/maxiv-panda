@@ -253,7 +253,7 @@ def _extract_point_axis_from_note(note: str, expected_n: int | None = None) -> l
     # bare \r, so normalize line endings before matching Point records.
     normalized_note = str(note or "").replace("\r\n", "\n").replace("\r", "\n")
     pattern = re.compile(
-        r"(?im)^\s*Point\s+(\d+)\s*=\s*([-+]?\d+(?:\.\d*)?(?:[eE][-+]?\d+)?)\s*eV\s*$"
+        r"(?im)^\s*Point\s+(\d+)\s*=\s*([-+]?\d+(?:\.\d*)?(?:[eE][-+]?\d+)?)\s*(?:eV|a\.u\.)\s*$"
     )
     for match in pattern.finditer(normalized_note):
         try:

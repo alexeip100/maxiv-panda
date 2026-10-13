@@ -8,7 +8,7 @@ normalization/ROI/export workflow is isolated here from unrelated 1D controls.
 
 from PyQt6.QtCore import Qt, QLocale
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QDoubleSpinBox, QFormLayout, QLabel,
+    QCheckBox, QDialog, QDoubleSpinBox, QFormLayout, QGridLayout, QLabel,
     QPushButton, QHBoxLayout, QVBoxLayout, QWidget, QGroupBox,
 )
 from maxiv_panda.silent_message_box import SilentMessageBox as QMessageBox
@@ -376,6 +376,52 @@ class UiMapControlsMixin:
             info.setVisible(True)
         return out
 
+    def _sync_map_normalization_options(self) -> None:
+        """Expose physical modes only for maps with a genuine photon-energy axis.
+
+        This is independent of Simple/Lines/ROI and of the ResPES panel toggle.
+        Keep the original modes for ordinary 2D XPS maps.
+        """
+        combo = getattr(self, "cb_map_normalization", None)
+        if combo is None:
+            return
+        physical = self._respes_normalization_context() is not None
+        choices = [("None", "none"), ("at BE", "at_be")]
+        if physical:
+            choices.extend([("at KE", "at_ke"), ("at PhE", "at_hv")])
+        choices.append(("Area", "area"))
+        ke_available = (not physical) or self._respes_physical_energy_range("ke") is not None
+        current = str(combo.currentData() or "none")
+        current_choices = [(combo.itemText(i), combo.itemData(i)) for i in range(combo.count())]
+        target = current if any(mode == current for _, mode in choices) else "none"
+        if target == "at_ke" and not ke_available:
+            target = "none"
+        if current_choices == choices and current == target:
+            # A changed data range can invalidate KE without changing the
+            # five menu labels; refresh its enabled state even in that case.
+            ke_index = combo.findData("at_ke")
+            if ke_index >= 0 and hasattr(combo.model(), "item"):
+                combo.model().item(ke_index).setEnabled(bool(ke_available))
+            return
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            for label, mode in choices:
+                combo.addItem(label, mode)
+                if mode == "at_ke" and not ke_available and hasattr(combo.model(), "item"):
+                    entry = combo.model().item(combo.count()-1)
+                    entry.setEnabled(False)
+                    entry.setToolTip("No kinetic-energy interval is covered by every spectrum in this scan.")
+            combo.setCurrentIndex(combo.findData(target))
+        finally:
+            combo.blockSignals(False)
+        self._map_norm_mode = target
+        if current != target:
+            self._map_norm_active_interval = None
+            dialog = getattr(self, "_map_norm_dialog", None)
+            if dialog is not None and dialog.isVisible():
+                self._hide_map_normalization_dialog()
+
     def _current_map_normalization_mode(self) -> str:
         combo = getattr(self, "cb_map_normalization", None)
         if combo is None:
@@ -483,6 +529,10 @@ class UiMapControlsMixin:
         self._map_norm_context_key = None
         self._map_norm_be = None
         self._map_norm_width_ev = None
+        self._map_norm_ke = None
+        self._map_norm_ke_width_ev = None
+        self._map_norm_hv = None
+        self._map_norm_hv_width_ev = None
         self._map_norm_area_low = None
         self._map_norm_area_high = None
         self._map_norm_active_interval = None
@@ -492,15 +542,105 @@ class UiMapControlsMixin:
             if dialog is not None and dialog.isVisible():
                 self._hide_map_normalization_dialog()
 
+    def _respes_normalization_context(self):
+        """Return (image, photon_energy, source_axis, work_function) for one ResPES map."""
+        try:
+            import numpy as np
+            selection = self._plot_selection_controller.collect_selection()
+            images = list(selection.images or [])
+            if not images:
+                return None
+            image = images[0]
+            z = np.asarray(image[2], dtype=float)
+            if z.ndim != 2:
+                return None
+            sec = image[6] if len(image) >= 7 else None
+            label = str(image[7] or "") if len(image) >= 8 else ""
+            if sec is None or not self._is_photon_energy_label(label):
+                return None
+            hv = np.asarray(sec, dtype=float).reshape(-1)
+            if hv.size != z.shape[0] or hv.size < 2 or not np.all(np.isfinite(hv)):
+                return None
+            xlabel = str(image[4] if len(image) > 4 else "")
+            source_axis = "ke" if "kinetic" in xlabel.lower() else "be"
+            work_function = float(getattr(self, "_respes_work_function", 4.5))
+            return image, hv, source_axis, work_function
+        except Exception:
+            return None
+
+    def _respes_physical_energy_range(self, physical_axis: str):
+        """Return the common physical BE/KE range available in every ResPES row."""
+        ctx = self._respes_normalization_context()
+        if ctx is None:
+            return None
+        image, hv, source_axis, phi = ctx
+        import numpy as np
+        x = np.asarray(image[0], dtype=float)
+        xf = x[np.isfinite(x)]
+        if xf.size < 2:
+            return None
+        xlo, xhi = float(np.min(xf)), float(np.max(xf))
+        physical_axis = "ke" if str(physical_axis).lower() == "ke" else "be"
+        if physical_axis == source_axis:
+            low, high = xlo, xhi
+        else:
+            # The transformed coverage shifts with photon energy; only the
+            # intersection common to every measured row is valid for a fixed
+            # physical normalization interval.
+            low = float(np.max(hv - phi - xhi))
+            high = float(np.min(hv - phi - xlo))
+        if not np.isfinite(low) or not np.isfinite(high) or high <= low:
+            return None
+        return float(low), float(high)
+
+    def _respes_normalization_defaults(self):
+        """Return sensible (BE, BE width, KE, KE width, hnu, hnu width) defaults."""
+        ctx = self._respes_normalization_context()
+        if ctx is None:
+            return (None,) * 6
+        image, hv, _source_axis, _phi = ctx
+        import numpy as np
+        x = np.asarray(image[0], dtype=float)
+        xf = x[np.isfinite(x)]
+        if xf.size < 2:
+            return (None,) * 6
+        xlo, xhi = float(np.min(xf)), float(np.max(xf))
+        hmin, hmax = float(np.min(hv)), float(np.max(hv))
+        xdiff = np.abs(np.diff(np.sort(xf))); xdiff = xdiff[xdiff > 0]
+        hdiff = np.abs(np.diff(np.sort(hv))); hdiff = hdiff[hdiff > 0]
+        xstep = float(np.median(xdiff)) if xdiff.size else 0.1
+        hstep = float(np.median(hdiff)) if hdiff.size else 0.1
+        base_width = max(xstep, 0.01 * max(xhi-xlo, xstep))
+        be_range = self._respes_physical_energy_range("be")
+        ke_range = self._respes_physical_energy_range("ke")
+        # Each physical coordinate has independent coverage.  In a narrow
+        # BE-window ResPES scan the hnu span may exceed the measured electron
+        # window: no fixed KE interval then exists *across every row*, but
+        # photon-energy normalization (and often BE normalization) is valid.
+        be = bew = ke = kew = None
+        if be_range is not None:
+            belo, behi = be_range
+            bew = min(base_width, behi-belo)
+            be = belo + 0.5*bew
+        if ke_range is not None:
+            kelo, kehi = ke_range
+            kew = min(base_width, kehi-kelo)
+            ke = kelo + 0.5*kew
+        hvw = min(max(hstep, 0.01 * max(hmax-hmin, hstep)), hmax-hmin)
+        hvc = hmin + 0.5*hvw
+        return be, bew, ke, kew, float(hvc), float(hvw)
+
     def _ensure_map_normalization_defaults(self) -> None:
         context_key = self._map_normalization_context_key()
         previous_key = getattr(self, "_map_norm_context_key", None)
-        # A changed map selection is a new normalization context.  Re-seed all
-        # defaults from that dataset instead of carrying values from the old one.
         if context_key != previous_key:
             self._map_norm_context_key = context_key
             self._map_norm_be = None
             self._map_norm_width_ev = None
+            self._map_norm_ke = None
+            self._map_norm_ke_width_ev = None
+            self._map_norm_hv = None
+            self._map_norm_hv_width_ev = None
             self._map_norm_area_low = None
             self._map_norm_area_high = None
             self._map_norm_active_interval = None
@@ -508,34 +648,78 @@ class UiMapControlsMixin:
         default_be, low, high, default_width = self._map_axis_defaults()
         if context_key is None:
             return
-        if default_be is not None and self._map_norm_be is None:
+
+        # ResPES maps may be stored on either BE or KE.  Initialise physical
+        # BE/KE defaults from the common ResPES coverage *before* falling back
+        # to the raw X-axis defaults.  Otherwise a KE-stored map can seed the
+        # BE editor with a stale KE value (for example 449.8 eV when the true
+        # common BE range is 47.5--69.5 eV).
+        be_r, bew_r, ke, kew, hvc, hvw = self._respes_normalization_defaults()
+        if be_r is not None:
+            if self._map_norm_be is None: self._map_norm_be = be_r
+            if self._map_norm_width_ev is None: self._map_norm_width_ev = bew_r
+        elif default_be is not None and self._map_norm_be is None:
             self._map_norm_be = float(default_be)
-        if default_width is not None and self._map_norm_width_ev is None:
+        if self._map_norm_width_ev is None and default_width is not None:
             self._map_norm_width_ev = float(default_width)
+
+        if ke is not None and self._map_norm_ke is None: self._map_norm_ke = ke
+        if kew is not None and self._map_norm_ke_width_ev is None: self._map_norm_ke_width_ev = kew
+        if hvc is not None and self._map_norm_hv is None: self._map_norm_hv = hvc
+        if hvw is not None and self._map_norm_hv_width_ev is None: self._map_norm_hv_width_ev = hvw
+
+        # Clamp any retained/stale physical settings into the currently valid
+        # common coverage.  This also protects mode switches and older session
+        # state from offering values outside the physical ResPES range.
+        for axis, c_attr, w_attr in (("be", "_map_norm_be", "_map_norm_width_ev"),
+                                     ("ke", "_map_norm_ke", "_map_norm_ke_width_ev")):
+            rng = self._respes_physical_energy_range(axis)
+            if rng is None:
+                continue
+            rlo, rhi = map(float, rng)
+            centre = getattr(self, c_attr, None)
+            width = getattr(self, w_attr, None)
+            if centre is None or width is None:
+                continue
+            width = min(abs(float(width)), max(rhi-rlo, 0.0))
+            if width <= 0:
+                continue
+            half = 0.5*width
+            centre = min(max(float(centre), rlo+half), rhi-half)
+            setattr(self, c_attr, centre)
+            setattr(self, w_attr, width)
+
         if low is not None and high is not None:
-            if self._map_norm_area_low is None:
-                self._map_norm_area_low = float(low)
-            if self._map_norm_area_high is None:
-                self._map_norm_area_high = float(high)
+            if self._map_norm_area_low is None: self._map_norm_area_low = float(low)
+            if self._map_norm_area_high is None: self._map_norm_area_high = float(high)
 
     def _current_map_norm_interval(self) -> tuple[float, float] | None:
         mode = self._current_map_normalization_mode()
         try:
             if mode == "at_be":
-                if self._map_norm_be is None or self._map_norm_width_ev is None:
-                    return None
-                half = 0.5 * abs(float(self._map_norm_width_ev))
-                return float(self._map_norm_be) - half, float(self._map_norm_be) + half
-            if mode == "area":
+                centre, width = self._map_norm_be, self._map_norm_width_ev
+            elif mode == "at_ke":
+                centre, width = self._map_norm_ke, self._map_norm_ke_width_ev
+            elif mode == "at_hv":
+                centre, width = self._map_norm_hv, self._map_norm_hv_width_ev
+            elif mode == "area":
                 if self._map_norm_area_low is None or self._map_norm_area_high is None:
                     return None
                 return tuple(sorted((float(self._map_norm_area_low), float(self._map_norm_area_high))))
+            else:
+                return None
+            if centre is None or width is None:
+                return None
+            half = 0.5 * abs(float(width))
+            return float(centre)-half, float(centre)+half
         except Exception:
             return None
-        return None
 
     def _on_map_normalization_changed(self, _index: int = -1) -> None:
         self._map_norm_mode = self._current_map_normalization_mode()
+        if self._map_norm_mode != "none" and getattr(self, "_respes_preedge_enabled", False):
+            self._respes_preedge_enabled = False
+            self._sync_respes_controls()
         self._ensure_map_normalization_defaults()
         dialog = getattr(self, "_map_norm_dialog", None)
         if self._map_norm_mode == "none":
@@ -582,122 +766,94 @@ class UiMapControlsMixin:
         old = dialog.layout()
         if old is not None:
             def _clear_layout(layout) -> None:
-                # Recursively remove every widget from the old dialog layout.
-                # In particular, the bottom button row is itself a nested
-                # QHBoxLayout; clearing only top-level widgets leaves its
-                # Reset/Close buttons alive and they can reappear at stale
-                # geometry when the dialog is repopulated.
                 while layout.count():
                     item = layout.takeAt(0)
                     child_layout = item.layout()
                     if child_layout is not None:
-                        _clear_layout(child_layout)
-                        child_layout.deleteLater()
-                        continue
+                        _clear_layout(child_layout); child_layout.deleteLater(); continue
                     widget = item.widget()
                     if widget is not None:
-                        widget.hide()
-                        widget.setParent(None)
-                        widget.deleteLater()
-
-            _clear_layout(old)
-            QWidget().setLayout(old)
+                        widget.hide(); widget.setParent(None); widget.deleteLater()
+            _clear_layout(old); QWidget().setLayout(old)
 
         mode = self._current_map_normalization_mode()
-        title = "Normalization at binding energy" if mode == "at_be" else "Area normalization"
-        dialog.setWindowTitle(title)
-        root = QVBoxLayout(dialog)
-        root.setContentsMargins(14, 14, 14, 12)
-        root.setSpacing(9)
-
-        _default_be, axis_low, axis_high, _default_width = self._map_axis_defaults()
-        if axis_low is not None and axis_high is not None:
-            available = QLabel(f"Available energy range:  {axis_low:g} – {axis_high:g} eV", dialog)
-            available.setStyleSheet("color: palette(mid);")
-            root.addWidget(available)
-
-        form_holder = QWidget(dialog)
-        form = QFormLayout(form_holder)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(8)
+        titles = {"at_be":"Normalization to BE interval", "at_ke":"Normalization to KE interval",
+                  "at_hv":"Normalization to photon-energy interval", "area":"Spectrum-area normalization"}
+        dialog.setWindowTitle(titles.get(mode, "Map normalization"))
+        root = QVBoxLayout(dialog); root.setContentsMargins(14,14,14,12); root.setSpacing(9)
         c_locale = QLocale.c()
+        def spin(value: float) -> QDoubleSpinBox:
+            sb=QDoubleSpinBox(dialog); sb.setLocale(c_locale); sb.setDecimals(3)
+            sb.setRange(-1.0e9,1.0e9); sb.setKeyboardTracking(False); sb.setSingleStep(0.1)
+            sb.setValue(float(value)); sb.setSuffix(" eV"); sb.setMinimumWidth(135); return sb
 
-        def spin(value: float, decimals: int = 3, suffix: str = " eV") -> QDoubleSpinBox:
-            sb = QDoubleSpinBox(dialog)
-            sb.setLocale(c_locale)
-            sb.setDecimals(decimals)
-            sb.setRange(-1.0e9, 1.0e9)
-            sb.setKeyboardTracking(False)
-            sb.setSingleStep(0.1)
-            sb.setValue(float(value))
-            sb.setSuffix(suffix)
-            sb.setMinimumWidth(135)
-            return sb
-
-        if mode == "at_be":
-            be = spin(float(self._map_norm_be if self._map_norm_be is not None else 0.0))
-            width = spin(float(self._map_norm_width_ev if self._map_norm_width_ev is not None else 1.0))
-            width.setRange(1.0e-9, 1.0e9)
-            be.setToolTip("Centre energy of the normalization interval.")
-            width.setToolTip("Absolute averaging width in eV.")
-            form.addRow("Reference BE:", be)
-            form.addRow("Averaging width:", width)
-            self._map_norm_dialog_be = be
-            self._map_norm_dialog_width = width
-            be.valueChanged.connect(lambda value: self._set_map_norm_parameter("be", value))
-            width.valueChanged.connect(lambda value: self._set_map_norm_parameter("width", value))
-            description = QLabel(
-                "Each spectrum is divided by its mean intensity within the selected energy interval.", dialog
-            )
-        elif mode == "area":
-            low = spin(float(self._map_norm_area_low if self._map_norm_area_low is not None else 0.0))
-            high = spin(float(self._map_norm_area_high if self._map_norm_area_high is not None else 0.0))
-            low.setToolTip("Lower energy limit used for the row area.")
-            high.setToolTip("Upper energy limit used for the row area.")
-            form.addRow("From:", low)
-            form.addRow("To:", high)
-            self._map_norm_dialog_area_low = low
-            self._map_norm_dialog_area_high = high
-            low.valueChanged.connect(lambda value: self._set_map_norm_parameter("area_low", value))
-            high.valueChanged.connect(lambda value: self._set_map_norm_parameter("area_high", value))
-            description = QLabel(
-                "Each spectrum is divided by its integrated intensity within the selected energy interval.", dialog
-            )
+        if mode in {"at_be", "at_ke", "at_hv"}:
+            ctx = self._respes_normalization_context()
+            if ctx is None:
+                if mode in {"at_ke", "at_hv"}:
+                    available = QLabel("Requires a ResPES map with photon energy as the second dimension.", dialog)
+                    available.setStyleSheet("color: palette(mid);"); root.addWidget(available)
+                else:
+                    _default_be,axis_low,axis_high,_default_width=self._map_axis_defaults()
+                    if axis_low is not None and axis_high is not None:
+                        available=QLabel(f"Available BE range:  {axis_low:g} – {axis_high:g} eV",dialog)
+                        available.setStyleSheet("color: palette(mid);"); root.addWidget(available)
+            else:
+                _image,hv,_source_axis,_phi=ctx
+                import numpy as np
+                if mode == "at_hv":
+                    lo,hi=float(np.min(hv)),float(np.max(hv)); text=f"Available photon-energy range:  {lo:g} – {hi:g} eV"
+                else:
+                    physical = self._respes_physical_energy_range("be" if mode == "at_be" else "ke")
+                    if physical is None:
+                        text = ("No common BE interval across all photon energies."
+                                if mode == "at_be" else
+                                "No common KE interval across all photon energies; use at BE, at PhE or Area.")
+                    else:
+                        lo,hi=physical
+                        text=(f"Common BE range:  {lo:g} – {hi:g} eV" if mode == "at_be"
+                              else f"Common KE range:  {lo:g} – {hi:g} eV")
+                available=QLabel(text,dialog); available.setStyleSheet("color: palette(mid);"); root.addWidget(available)
         else:
-            root.addWidget(QLabel("No normalization settings are required.", dialog))
-            return
+            _default_be,axis_low,axis_high,_default_width=self._map_axis_defaults()
+            if axis_low is not None and axis_high is not None:
+                available=QLabel(f"Available energy range:  {axis_low:g} – {axis_high:g} eV",dialog)
+                available.setStyleSheet("color: palette(mid);"); root.addWidget(available)
 
+        form_holder=QWidget(dialog); form=QFormLayout(form_holder); form.setContentsMargins(0,0,0,0)
+        form.setHorizontalSpacing(12); form.setVerticalSpacing(8)
+        if mode in {"at_be","at_ke","at_hv"}:
+            if mode=="at_be": centre=float(self._map_norm_be or 0.0); width=float(self._map_norm_width_ev or 1.0); label="Reference BE:"; ck="be"; wk="width"
+            elif mode=="at_ke": centre=float(self._map_norm_ke or 0.0); width=float(self._map_norm_ke_width_ev or 1.0); label="Reference KE:"; ck="ke"; wk="ke_width"
+            else: centre=float(self._map_norm_hv or 0.0); width=float(self._map_norm_hv_width_ev or 1.0); label="Reference Photon-E:"; ck="hv"; wk="hv_width"
+            c=spin(centre); w=spin(width); w.setRange(1.0e-9,1.0e9)
+            c.setToolTip("Centre of the normalization interval."); w.setToolTip("Absolute averaging width in eV.")
+            form.addRow(label,c); form.addRow("Averaging width:",w)
+            setattr(self, f"_map_norm_dialog_{ck}", c); setattr(self, f"_map_norm_dialog_{wk}", w)
+            c.valueChanged.connect(lambda value,key=ck:self._set_map_norm_parameter(key,value))
+            w.valueChanged.connect(lambda value,key=wk:self._set_map_norm_parameter(key,value))
+            if mode=="at_hv":
+                description=QLabel("The average spectrum over this photon-energy interval is used as a point-by-point reference (for example, a pre-edge spectrum).",dialog)
+            else:
+                description=QLabel("Each spectrum is divided by its mean intensity within the selected physical energy interval.",dialog)
+        elif mode=="area":
+            low=spin(float(self._map_norm_area_low or 0.0)); high=spin(float(self._map_norm_area_high or 0.0))
+            form.addRow("From:",low); form.addRow("To:",high)
+            self._map_norm_dialog_area_low=low; self._map_norm_dialog_area_high=high
+            low.valueChanged.connect(lambda value:self._set_map_norm_parameter("area_low",value))
+            high.valueChanged.connect(lambda value:self._set_map_norm_parameter("area_high",value))
+            description=QLabel("Each spectrum is divided by its integrated area within the selected energy range.",dialog)
+        else:
+            description=QLabel("No normalization settings are required.",dialog)
         root.addWidget(form_holder)
-        self._map_norm_dialog_actual = QLabel(dialog)
-        self._map_norm_dialog_actual.setStyleSheet("font-weight: 600;")
-        root.addWidget(self._map_norm_dialog_actual)
-        description.setWordWrap(True)
-        description.setStyleSheet("color: palette(mid);")
-        root.addWidget(description)
-
-        show_region = QCheckBox("Show normalization range on map", dialog)
-        show_region.setChecked(bool(self._map_norm_show_region))
-        show_region.toggled.connect(self._on_map_norm_show_region_changed)
-        self._map_norm_dialog_show_region = show_region
-        root.addWidget(show_region)
-
-        buttons = QHBoxLayout()
-        reset = QPushButton("Reset", dialog)
-        reset.setToolTip("Restore the default normalization settings for the current map.")
-        close = QPushButton("Close", dialog)
-        # Do not let Return/Enter in a QDoubleSpinBox activate one of the
-        # dialog push buttons.  The spin box must be free to commit typed
-        # values without accidentally invoking Reset (Qt auto-default).
-        for button in (reset, close):
-            button.setAutoDefault(False)
-            button.setDefault(False)
-        close.clicked.connect(self._hide_map_normalization_dialog)
-        reset.clicked.connect(self._reset_map_normalization_settings)
-        buttons.addWidget(reset)
-        buttons.addStretch(1)
-        buttons.addWidget(close)
-        root.addLayout(buttons)
+        description.setWordWrap(True); description.setStyleSheet("color: palette(mid);"); root.addWidget(description)
+        actual=QLabel(dialog); self._map_norm_dialog_actual=actual; root.addWidget(actual)
+        show=QCheckBox("Show normalization region on map",dialog); show.setChecked(bool(getattr(self,"_map_norm_show_region",True)))
+        show.toggled.connect(self._on_map_norm_show_region_changed); root.addWidget(show)
+        buttons=QHBoxLayout(); reset=QPushButton("Reset",dialog); close=QPushButton("Close",dialog)
+        for button in (reset,close): button.setAutoDefault(False); button.setDefault(False)
+        close.clicked.connect(self._hide_map_normalization_dialog); reset.clicked.connect(self._reset_map_normalization_settings)
+        buttons.addWidget(reset); buttons.addStretch(1); buttons.addWidget(close); root.addLayout(buttons)
         self._refresh_map_norm_dialog_summary()
 
     def _refresh_map_norm_dialog_summary(self) -> None:
@@ -716,224 +872,185 @@ class UiMapControlsMixin:
 
     def _restore_map_norm_dialog_value(self, key: str, value: float) -> None:
         """Restore one normalization editor without firing its callback again."""
-        attr = {
-            "be": "_map_norm_dialog_be",
-            "width": "_map_norm_dialog_width",
-            "area_low": "_map_norm_dialog_area_low",
-            "area_high": "_map_norm_dialog_area_high",
-        }.get(key)
-        widget = getattr(self, attr, None) if attr else None
-        if widget is None:
-            return
+        attr={"be":"_map_norm_dialog_be","width":"_map_norm_dialog_width",
+              "ke":"_map_norm_dialog_ke","ke_width":"_map_norm_dialog_ke_width",
+              "hv":"_map_norm_dialog_hv","hv_width":"_map_norm_dialog_hv_width",
+              "area_low":"_map_norm_dialog_area_low","area_high":"_map_norm_dialog_area_high"}.get(key)
+        widget=getattr(self,attr,None) if attr else None
+        if widget is None: return
         widget.blockSignals(True)
-        try:
-            widget.setValue(float(value))
-        finally:
-            widget.blockSignals(False)
+        try: widget.setValue(float(value))
+        finally: widget.blockSignals(False)
         self._refresh_map_norm_dialog_summary()
 
     def _validate_map_norm_candidate(self, key: str, value: float) -> tuple[bool, str]:
         """Validate a prospective map-normalization setting before committing it."""
         import numpy as np
-        from .workflows.normalization.logic import (
-            normalize_map_rows_at_energy, normalize_map_rows_by_area,
-        )
-
-        be = float(self._map_norm_be if self._map_norm_be is not None else 0.0)
-        width = float(self._map_norm_width_ev if self._map_norm_width_ev is not None else 0.0)
-        area_low = float(self._map_norm_area_low if self._map_norm_area_low is not None else 0.0)
-        area_high = float(self._map_norm_area_high if self._map_norm_area_high is not None else 0.0)
-        if key == "be":
-            be = float(value)
-        elif key == "width":
-            width = float(value)
-        elif key == "area_low":
-            area_low = float(value)
-        elif key == "area_high":
-            area_high = float(value)
-
+        from .workflows.normalization.logic import (normalize_map_rows_at_energy, normalize_map_rows_by_area,
+            normalize_respes_rows_at_binding_energy, normalize_respes_rows_at_kinetic_energy, normalize_map_to_photon_energy_interval)
+        vals={"be":float(self._map_norm_be or 0.0),"width":float(self._map_norm_width_ev or 0.0),
+              "ke":float(self._map_norm_ke or 0.0),"ke_width":float(self._map_norm_ke_width_ev or 0.0),
+              "hv":float(self._map_norm_hv or 0.0),"hv_width":float(self._map_norm_hv_width_ev or 0.0),
+              "area_low":float(self._map_norm_area_low or 0.0),"area_high":float(self._map_norm_area_high or 0.0)}
+        if key in vals: vals[key]=float(value)
         try:
-            selection = self._plot_selection_controller.collect_selection()
-            images = list(selection.images or [])
-            if not images:
-                return False, "No 2D map spectra are currently available."
-
-            mode = self._current_map_normalization_mode()
+            selection=self._plot_selection_controller.collect_selection(); images=list(selection.images or [])
+            if not images: return False,"No 2D map spectra are currently available."
+            mode=self._current_map_normalization_mode()
             for image in images:
-                x = np.asarray(image[0], dtype=float)
-                z = np.asarray(image[2], dtype=float)
-                finite_x = x[np.isfinite(x)]
-                if finite_x.size < 2:
-                    raise ValueError("The map energy axis is unavailable.")
-                xmin = float(np.min(finite_x))
-                xmax = float(np.max(finite_x))
-
-                if mode == "at_be":
-                    if not (xmin <= be <= xmax):
-                        raise ValueError(
-                            f"The normalization BE must lie within the spectral range "
-                            f"{xmin:g} to {xmax:g} eV."
-                        )
-                    if width <= 0.0:
-                        raise ValueError("The averaging width must be greater than zero.")
-                    lo = be - 0.5 * width
-                    hi = be + 0.5 * width
-                    if lo < xmin or hi > xmax:
-                        raise ValueError(
-                            f"The complete averaging interval ({lo:g} to {hi:g} eV) must lie "
-                            f"within the spectral range {xmin:g} to {xmax:g} eV."
-                        )
-                    normalize_map_rows_at_energy(x, z, be, width)
-                elif mode == "area":
-                    lo, hi = sorted((area_low, area_high))
-                    if lo < xmin or hi > xmax:
-                        raise ValueError(
-                            f"Both area limits must lie within the spectral range "
-                            f"{xmin:g} to {xmax:g} eV."
-                        )
-                    if hi <= lo:
-                        raise ValueError("The area-normalization range must have a non-zero width.")
-                    normalize_map_rows_by_area(x, z, area_low, area_high)
-            return True, ""
-        except Exception as exc:
-            return False, str(exc)
+                x=np.asarray(image[0],dtype=float); z=np.asarray(image[2],dtype=float)
+                finite_x=x[np.isfinite(x)]
+                if finite_x.size<2: raise ValueError("The map energy axis is unavailable.")
+                xmin,xmax=float(np.min(finite_x)),float(np.max(finite_x))
+                if mode=="at_be":
+                    sec=image[6] if len(image)>=7 else None; label=str(image[7] or "") if len(image)>=8 else ""
+                    if sec is not None and self._is_photon_energy_label(label):
+                        hv=np.asarray(sec,dtype=float); source_axis="ke" if "kinetic" in str(image[4]).lower() else "be"
+                        normalize_respes_rows_at_binding_energy(x,z,hv,vals["be"],vals["width"],work_function=float(getattr(self,"_respes_work_function",4.5)),source_axis=source_axis)
+                    else:
+                        lo=vals["be"]-0.5*vals["width"]; hi=vals["be"]+0.5*vals["width"]
+                        if vals["width"]<=0 or lo<xmin or hi>xmax: raise ValueError("The complete BE averaging interval must lie within the spectral range.")
+                        normalize_map_rows_at_energy(x,z,vals["be"],vals["width"])
+                elif mode=="area":
+                    lo,hi=sorted((vals["area_low"],vals["area_high"]))
+                    if hi<=lo or lo<xmin or hi>xmax: raise ValueError("Both spectrum-area limits must lie within the spectral range and have non-zero width.")
+                    normalize_map_rows_by_area(x,z,*sorted((vals["area_low"],vals["area_high"])))
+                elif mode in {"at_ke","at_hv"}:
+                    sec=image[6] if len(image)>=7 else None; label=str(image[7] or "") if len(image)>=8 else ""
+                    if sec is None or not self._is_photon_energy_label(label): raise ValueError("This normalization requires a ResPES map with photon energy as the second dimension.")
+                    hv=np.asarray(sec,dtype=float)
+                    source_axis="ke" if "kinetic" in str(image[4]).lower() else "be"
+                    if mode=="at_ke":
+                        normalize_respes_rows_at_kinetic_energy(x,z,hv,vals["ke"],vals["ke_width"],work_function=float(getattr(self,"_respes_work_function",4.5)),source_axis=source_axis)
+                    else:
+                        normalize_map_to_photon_energy_interval(hv,z,vals["hv"],vals["hv_width"])
+            return True,""
+        except Exception as exc: return False,str(exc)
 
     def _set_map_norm_parameter(self, key: str, value: float) -> None:
-        old_values = {
-            "be": float(self._map_norm_be if self._map_norm_be is not None else 0.0),
-            "width": float(self._map_norm_width_ev if self._map_norm_width_ev is not None else 0.0),
-            "area_low": float(self._map_norm_area_low if self._map_norm_area_low is not None else 0.0),
-            "area_high": float(self._map_norm_area_high if self._map_norm_area_high is not None else 0.0),
-        }
-        valid, message = self._validate_map_norm_candidate(key, float(value))
+        attrs={"be":"_map_norm_be","width":"_map_norm_width_ev","ke":"_map_norm_ke","ke_width":"_map_norm_ke_width_ev",
+               "hv":"_map_norm_hv","hv_width":"_map_norm_hv_width_ev","area_low":"_map_norm_area_low","area_high":"_map_norm_area_high"}
+        attr=attrs.get(key)
+        if attr is None: return
+        old=float(getattr(self,attr,None) or 0.0)
+        valid,message=self._validate_map_norm_candidate(key,float(value))
         if not valid:
-            QMessageBox.warning(
-                self, "Invalid normalization range",
-                f"The requested normalization setting cannot be used:\n{message}\n\n"
-                "The previous valid setting has been restored.",
-                QMessageBox.StandardButton.Ok,
-            )
-            self._restore_map_norm_dialog_value(key, old_values[key])
-            return
-
-        if key == "be":
-            self._map_norm_be = float(value)
-        elif key == "width":
-            self._map_norm_width_ev = float(value)
-        elif key == "area_low":
-            self._map_norm_area_low = float(value)
-        elif key == "area_high":
-            self._map_norm_area_high = float(value)
-        self._refresh_map_norm_dialog_summary()
-        self._update_plot_from_selected()
+            QMessageBox.warning(self, "Invalid normalization range",
+                "The requested normalization setting cannot be used:\n" + str(message) +
+                "\n\nThe previous valid setting has been restored.",
+                QMessageBox.StandardButton.Ok)
+            self._restore_map_norm_dialog_value(key,old); return
+        setattr(self,attr,float(value)); self._refresh_map_norm_dialog_summary(); self._update_plot_from_selected()
 
     def _on_map_norm_band_changed_from_plot(self, interval, final: bool = False) -> None:
         """Synchronize an interactively edited normalization band with the GUI."""
-        mode = self._current_map_normalization_mode()
-        if mode not in {"at_be", "area"} or interval is None:
-            return
+        mode=self._current_map_normalization_mode()
+        if mode not in {"at_be","at_ke","at_hv","area"} or interval is None: return
         try:
-            low, high = sorted((float(interval[0]), float(interval[1])))
-            if not high > low:
-                return
-            if mode == "at_be":
-                be = 0.5 * (low + high)
-                width = high - low
-                self._map_norm_be = be
-                self._map_norm_width_ev = width
-                updates = (("_map_norm_dialog_be", be), ("_map_norm_dialog_width", width))
+            low,high=sorted((float(interval[0]),float(interval[1])))
+            if not high>low: return
+            if mode=="at_be":
+                self._map_norm_be=0.5*(low+high); self._map_norm_width_ev=high-low
+                updates=(("_map_norm_dialog_be",self._map_norm_be),("_map_norm_dialog_width",self._map_norm_width_ev))
+            elif mode=="at_ke":
+                self._map_norm_ke=0.5*(low+high); self._map_norm_ke_width_ev=high-low
+                updates=(("_map_norm_dialog_ke",self._map_norm_ke),("_map_norm_dialog_ke_width",self._map_norm_ke_width_ev))
+            elif mode=="at_hv":
+                self._map_norm_hv=0.5*(low+high); self._map_norm_hv_width_ev=high-low
+                updates=(("_map_norm_dialog_hv",self._map_norm_hv),("_map_norm_dialog_hv_width",self._map_norm_hv_width_ev))
             else:
-                self._map_norm_area_low = low
-                self._map_norm_area_high = high
-                updates = (("_map_norm_dialog_area_low", low), ("_map_norm_dialog_area_high", high))
-            for attr, value in updates:
-                widget = getattr(self, attr, None)
+                self._map_norm_area_low=low; self._map_norm_area_high=high
+                updates=(("_map_norm_dialog_area_low",low),("_map_norm_dialog_area_high",high))
+            for attr,value in updates:
+                widget=getattr(self,attr,None)
                 if widget is not None:
                     widget.blockSignals(True)
-                    try:
-                        widget.setValue(float(value))
-                    finally:
-                        widget.blockSignals(False)
+                    try: widget.setValue(float(value))
+                    finally: widget.blockSignals(False)
             self._refresh_map_norm_dialog_summary()
-            # During the drag only the band/dialog are updated, so the mouse
-            # interaction remains continuous.  Recompute the normalized map
-            # once on release using the final interval.
-            if final:
-                self._update_plot_from_selected()
-        except Exception:
-            return
+            if final: self._update_plot_from_selected()
+        except Exception: return
 
     def _on_map_norm_show_region_changed(self, checked: bool) -> None:
         self._map_norm_show_region = bool(checked)
         self._update_plot_from_selected()
 
     def _reset_map_normalization_settings(self) -> None:
-        default_be, low, high, default_width = self._map_axis_defaults()
-        mode = self._current_map_normalization_mode()
-        if mode == "at_be" and default_be is not None and default_width is not None:
-            self._map_norm_be = float(default_be)
-            self._map_norm_width_ev = float(default_width)
-        elif mode == "area" and low is not None and high is not None:
-            self._map_norm_area_low = float(low)
-            self._map_norm_area_high = float(high)
-        self._map_norm_show_region = True
-        self._populate_map_normalization_dialog()
-        self._update_plot_from_selected()
+        default_be,low,high,default_width=self._map_axis_defaults(); mode=self._current_map_normalization_mode()
+        be_r,bew_r,ke,kew,hvc,hvw=self._respes_normalization_defaults()
+        if mode=="at_be":
+            if be_r is not None:
+                self._map_norm_be=be_r; self._map_norm_width_ev=bew_r
+            elif default_be is not None and default_width is not None:
+                self._map_norm_be=float(default_be); self._map_norm_width_ev=float(default_width)
+        elif mode=="at_ke" and ke is not None:
+            self._map_norm_ke=ke; self._map_norm_ke_width_ev=kew
+        elif mode=="at_hv" and hvc is not None:
+            self._map_norm_hv=hvc; self._map_norm_hv_width_ev=hvw
+        elif mode=="area" and low is not None and high is not None:
+            self._map_norm_area_low=float(low); self._map_norm_area_high=float(high)
+        self._map_norm_show_region=True; self._populate_map_normalization_dialog(); self._update_plot_from_selected()
 
     def _apply_map_normalization(self, images):
         """Return display-only normalized map images for Processed Data."""
-        mode = self._current_map_normalization_mode()
-        self._map_norm_active_interval = None
-        if mode == "none" or not images:
-            return images
+        mode=self._current_map_normalization_mode(); self._map_norm_active_interval=None
+        if mode == "none" and getattr(self, "_respes_preedge_enabled", False):
+            from .workflows.normalization.logic import subtract_map_photon_energy_reference
+            import numpy as np
+            result = []
+            try:
+                for image in images:
+                    hv = np.asarray(image[6], dtype=float)
+                    if not self._is_photon_energy_label(image[7]):
+                        raise ValueError("Reference subtraction requires a photon-energy ResPES map.")
+                    znew, _, _ = subtract_map_photon_energy_reference(
+                        hv, np.asarray(image[2], dtype=float),
+                        float(self._respes_preedge_center), float(self._respes_preedge_width))
+                    result.append((*image[:2], znew, *image[3:]))
+            except Exception as exc:
+                QMessageBox.warning(self, "Reference subtraction not applied", str(exc), QMessageBox.StandardButton.Ok)
+                return images
+            return result
+        if mode=="none" or not images: return images
         self._ensure_map_normalization_defaults()
-        from .workflows.normalization.logic import (
-            normalize_map_rows_at_energy, normalize_map_rows_by_area,
-        )
+        from .workflows.normalization.logic import (normalize_map_rows_at_energy,normalize_map_rows_by_area,
+            normalize_respes_rows_at_binding_energy,normalize_respes_rows_at_kinetic_energy,normalize_map_to_photon_energy_interval)
         import numpy as np
-        normalized = []
-        active_interval = None
+        normalized=[]; active_interval=None
         try:
             for image in images:
-                x, y, Z, title, xlabel = image[:5]
-                cmap = image[5] if len(image) > 5 else "terrain"
-                Z_arr = np.asarray(Z, dtype=float)
-                if mode == "at_be":
-                    if self._map_norm_be is None or self._map_norm_width_ev is None:
-                        raise ValueError("No normalization energy interval is available.")
-                    Z_new, interval = normalize_map_rows_at_energy(
-                        np.asarray(x, dtype=float), Z_arr, float(self._map_norm_be),
-                        float(self._map_norm_width_ev),
-                    )
-                elif mode == "area":
-                    if self._map_norm_area_low is None or self._map_norm_area_high is None:
-                        raise ValueError("No area-normalization interval is available.")
-                    Z_new = normalize_map_rows_by_area(
-                        np.asarray(x, dtype=float), Z_arr,
-                        float(self._map_norm_area_low), float(self._map_norm_area_high),
-                    )
-                    interval = tuple(sorted((float(self._map_norm_area_low), float(self._map_norm_area_high))))
-                else:
-                    Z_new = Z_arr
-                    interval = None
-                if active_interval is None and interval is not None:
-                    active_interval = tuple(interval)
-                # Preserve any map metadata beyond the core six fields.  In
-                # particular, resonant-PES maps carry the physical second-
-                # dimension values and label as fields 7/8 (e.g. photon
-                # energy).  Rebuilding a six-tuple here used to silently drop
-                # that metadata whenever map normalization was active.
-                normalized.append((x, y, Z_new, title, xlabel, cmap, *image[6:]))
+                x,y,Z,title,xlabel=image[:5]; cmap=image[5] if len(image)>5 else "terrain"; Z_arr=np.asarray(Z,dtype=float)
+                if mode=="at_be":
+                    if self._map_norm_be is None or self._map_norm_width_ev is None: raise ValueError("No BE normalization interval is available.")
+                    sec=image[6] if len(image)>=7 else None; label=str(image[7] or "") if len(image)>=8 else ""
+                    if sec is not None and self._is_photon_energy_label(label):
+                        hv=np.asarray(sec,dtype=float); source_axis="ke" if "kinetic" in str(xlabel).lower() else "be"
+                        Z_new,interval=normalize_respes_rows_at_binding_energy(np.asarray(x,dtype=float),Z_arr,hv,float(self._map_norm_be),float(self._map_norm_width_ev),work_function=float(getattr(self,"_respes_work_function",4.5)),source_axis=source_axis)
+                    else:
+                        Z_new,interval=normalize_map_rows_at_energy(np.asarray(x,dtype=float),Z_arr,float(self._map_norm_be),float(self._map_norm_width_ev))
+                elif mode=="area":
+                    if self._map_norm_area_low is None or self._map_norm_area_high is None: raise ValueError("No spectrum-area normalization interval is available.")
+                    Z_new=normalize_map_rows_by_area(np.asarray(x,dtype=float),Z_arr,float(self._map_norm_area_low),float(self._map_norm_area_high)); interval=tuple(sorted((float(self._map_norm_area_low),float(self._map_norm_area_high))))
+                elif mode in {"at_ke","at_hv"}:
+                    sec=image[6] if len(image)>=7 else None; label=str(image[7] or "") if len(image)>=8 else ""
+                    if sec is None or not self._is_photon_energy_label(label): raise ValueError("KE and Photon-E normalization require a ResPES map with photon energy as the second dimension.")
+                    hv=np.asarray(sec,dtype=float); source_axis="ke" if "kinetic" in str(xlabel).lower() else "be"
+                    if mode=="at_ke":
+                        if self._map_norm_ke is None or self._map_norm_ke_width_ev is None: raise ValueError("No KE normalization interval is available.")
+                        Z_new,interval=normalize_respes_rows_at_kinetic_energy(np.asarray(x,dtype=float),Z_arr,hv,float(self._map_norm_ke),float(self._map_norm_ke_width_ev),work_function=float(getattr(self,"_respes_work_function",4.5)),source_axis=source_axis)
+                    else:
+                        if self._map_norm_hv is None or self._map_norm_hv_width_ev is None: raise ValueError("No photon-energy normalization interval is available.")
+                        Z_new,interval,_reference=normalize_map_to_photon_energy_interval(hv,Z_arr,float(self._map_norm_hv),float(self._map_norm_hv_width_ev))
+                else: Z_new=Z_arr; interval=None
+                if active_interval is None and interval is not None: active_interval=tuple(interval)
+                normalized.append((x,y,Z_new,title,xlabel,cmap,*image[6:]))
         except Exception as exc:
-            QMessageBox.warning(
-                self, "Map normalization not applied",
-                f"The selected map normalization could not be applied:\n{exc}\n\n"
-                "The normalization mode has been kept unchanged.",
-                QMessageBox.StandardButton.Ok,
-            )
+            QMessageBox.warning(self, "Map normalization not applied",
+                "The selected map normalization could not be applied:\n" + str(exc) +
+                "\n\nThe normalization mode has been kept unchanged.",
+                QMessageBox.StandardButton.Ok)
             return images
-        self._map_norm_active_interval = active_interval
-        return normalized
+        self._map_norm_active_interval=active_interval; return normalized
 
     def _on_map_roi_numeric_changed(self) -> None:
         if not bool(getattr(self, "rb_map_roi", None) and self.rb_map_roi.isChecked()):
@@ -1150,8 +1267,8 @@ class UiMapControlsMixin:
                 if w is not None:
                     w.deleteLater()
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(7)
+        layout.setContentsMargins(7, 7, 7, 7)
+        layout.setSpacing(18)
 
         from PyQt6.QtWidgets import QComboBox
 
@@ -1161,11 +1278,12 @@ class UiMapControlsMixin:
         axis_group = QGroupBox("Map energy axis", panel)
         axis_group.setObjectName("ResPESEnergyAxisGroup")
         axis_layout = QVBoxLayout(axis_group)
-        axis_layout.setContentsMargins(7, 7, 7, 7)
-        axis_layout.setSpacing(5)
+        axis_layout.setContentsMargins(12, 15, 12, 13)
+        axis_layout.setSpacing(13)
         axis_form = QFormLayout()
         axis_form.setContentsMargins(0, 0, 0, 0)
-        axis_form.setSpacing(5)
+        axis_form.setHorizontalSpacing(12)
+        axis_form.setVerticalSpacing(10)
 
         self.cb_respes_energy_axis = QComboBox(axis_group)
         self.cb_respes_energy_axis.addItem("Binding energy (BE)", "be")
@@ -1194,14 +1312,53 @@ class UiMapControlsMixin:
         axis_layout.addLayout(axis_form)
         layout.addWidget(axis_group)
 
+        # Independent pre-edge subtraction, never part of the cuts group.
+        pre_group = QGroupBox("Reference subtraction", panel)
+        pre_group.setObjectName("ResPESPreedgeGroup")
+        pre_layout = QVBoxLayout(pre_group)
+        pre_layout.setContentsMargins(12, 15, 12, 13)
+        pre_layout.setSpacing(14)
+        self.chk_respes_preedge = QCheckBox("Subtract reference PE\nspectrum", pre_group)
+        self.chk_respes_preedge.setToolTip("Subtract the average spectrum over the selected photon-energy range from every map row. Available only when Normalize is None.")
+        pre_layout.addWidget(self.chk_respes_preedge)
+        # QFormLayout may wrap both labels onto separate rows in a narrow
+        # sidebar on Windows.  A two-column grid keeps every label visible.
+        pre_form = QGridLayout()
+        pre_form.setContentsMargins(0, 0, 0, 0)
+        pre_form.setHorizontalSpacing(8)
+        pre_form.setVerticalSpacing(12)
+        pre_form.setColumnStretch(0, 0)
+        pre_form.setColumnStretch(1, 1)
+        self.sb_respes_preedge_center = QDoubleSpinBox(pre_group)
+        self.sb_respes_preedge_width = QDoubleSpinBox(pre_group)
+        for sb in (self.sb_respes_preedge_center, self.sb_respes_preedge_width):
+            sb.setLocale(QLocale.c()); sb.setDecimals(3)
+            sb.setRange(-1e6, 1e6); sb.setSuffix(" eV")
+            sb.setKeyboardTracking(False)
+            sb.setFrame(True)
+            sb.setMinimumWidth(0)
+        self.sb_respes_preedge_width.setMinimum(0.001)
+        self.sb_respes_preedge_center.setSingleStep(0.1)
+        self.sb_respes_preedge_width.setSingleStep(0.1)
+        self.lbl_respes_reference_hv = QLabel("Reference PhE", pre_group)
+        self.lbl_respes_reference_width = QLabel("Width", pre_group)
+        pre_form.addWidget(self.lbl_respes_reference_hv, 0, 0)
+        pre_form.addWidget(self.sb_respes_preedge_center, 0, 1)
+        pre_form.addWidget(self.lbl_respes_reference_width, 1, 0)
+        pre_form.addWidget(self.sb_respes_preedge_width, 1, 1)
+        pre_layout.addLayout(pre_form)
+        self.chk_respes_preedge.setToolTip("Subtract the reference spectrum averaged over the selected photon-energy interval. Drag the horizontal band to move it, or either boundary to resize it. Requires Normalize: None.")
+        layout.addWidget(pre_group)
+
         # Everything in this group defines, edits, or stores a ResPES cut.
         cuts_group = QGroupBox("ResPES cuts", panel)
         cuts_group.setObjectName("ResPESCutsGroup")
         cuts_layout = QVBoxLayout(cuts_group)
-        cuts_layout.setContentsMargins(7, 7, 7, 7)
-        cuts_layout.setSpacing(5)
+        cuts_layout.setContentsMargins(12, 15, 12, 13)
+        cuts_layout.setSpacing(13)
 
         self.cb_respes_cut_type = QComboBox(cuts_group)
+        self.cb_respes_cut_type.addItem("None", "none")
         self.cb_respes_cut_type.addItem("Constant BE", "constant_be")
         self.cb_respes_cut_type.addItem("Constant KE", "constant_ke")
         self.cb_respes_cut_type.addItem("Constant PhE", "constant_hv")
@@ -1213,7 +1370,8 @@ class UiMapControlsMixin:
 
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
-        form.setSpacing(5)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(10)
         self.lbl_respes_position = QLabel("BE", cuts_group)
         self.sb_respes_position = QDoubleSpinBox(cuts_group)
         self.sb_respes_position.setLocale(QLocale.c())
@@ -1231,16 +1389,13 @@ class UiMapControlsMixin:
         self.sb_respes_width.setKeyboardTracking(True)
         self.sb_respes_width.setSuffix(" eV")
         self.sb_respes_width.setSingleStep(0.05)
-        form.addRow("Width", self.sb_respes_width)
+        form.addRow("Cut width", self.sb_respes_width)
         cuts_layout.addLayout(form)
+        self._respes_cuts_form = form
+        self._respes_cut_fields = (self.lbl_respes_position, self.sb_respes_position,
+                                   self.sb_respes_width)
 
-        note = QLabel("Drag the band on the map; drag an edge to change width.", cuts_group)
-        note.setWordWrap(True)
-        try:
-            note.setStyleSheet("color: palette(mid);")
-        except Exception:
-            pass
-        cuts_layout.addWidget(note)
+        self.cb_respes_cut_type.setToolTip(self.cb_respes_cut_type.toolTip() + " Drag the selected cut on the map; drag its boundary to change the width.")
 
         action_row = QHBoxLayout()
         action_row.setContentsMargins(0, 0, 0, 0)
@@ -1254,26 +1409,9 @@ class UiMapControlsMixin:
         cuts_layout.addLayout(action_row)
         layout.addWidget(cuts_group)
 
-        # Keep workflow grouping visually consistent with the compact
-        # Normalization controls used elsewhere in Processed Data.
-        group_style = """
-        QGroupBox#ResPESEnergyAxisGroup, QGroupBox#ResPESCutsGroup {
-            border: 1px solid palette(mid);
-            border-radius: 5px;
-            margin-top: 7px;
-            padding-top: 2px;
-        }
-        QGroupBox#ResPESEnergyAxisGroup::title, QGroupBox#ResPESCutsGroup::title {
-            subcontrol-origin: margin;
-            subcontrol-position: top left;
-            left: 8px;
-            padding: 0 3px;
-            color: palette(window-text);
-            font-weight: 600;
-        }
-        """
-        axis_group.setStyleSheet(group_style)
-        cuts_group.setStyleSheet(group_style)
+        # Let the active native Qt style paint all QGroupBox and QDoubleSpinBox
+        # frames. Even a stylesheet on a parent QGroupBox switches child controls
+        # to QStyleSheetStyle on Windows and clips the spinbox bottom/step buttons.
 
         layout.addStretch(1)
         panel.setVisible(False)
@@ -1281,6 +1419,9 @@ class UiMapControlsMixin:
         self.cb_respes_energy_axis.currentIndexChanged.connect(self._on_respes_energy_axis_changed)
         self.sb_respes_work_function.valueChanged.connect(self._on_respes_work_function_changed)
         self.cb_respes_cut_type.currentIndexChanged.connect(self._on_respes_cut_type_changed)
+        self.chk_respes_preedge.toggled.connect(self._on_respes_preedge_toggled)
+        self.sb_respes_preedge_center.valueChanged.connect(self._on_respes_preedge_numeric_changed)
+        self.sb_respes_preedge_width.valueChanged.connect(self._on_respes_preedge_numeric_changed)
         # ResPES cut controls are exploratory controls: update the overlay/trace
         # immediately while typing or stepping rather than waiting for Enter.
         self.sb_respes_position.valueChanged.connect(self._on_respes_numeric_changed)
@@ -1357,13 +1498,19 @@ class UiMapControlsMixin:
                 if not np.isfinite(xstep) or xstep <= 0:
                     xstep = max(abs(xhi - xlo) / max(x.size - 1, 1), 0.01)
                 self._respes_cut_width = max(xstep, 0.10)
-                self._respes_cut_type = "constant_be"
+                self._respes_cut_type = "none"
+                # Defaults are physical photon energies, even while the
+                # subtraction widget is disabled by normalization.
+                hv_valid = np.sort(hv[np.isfinite(hv)])
+                if hv_valid.size >= 2:
+                    span = float(hv_valid[-1] - hv_valid[0])
+                    width = max(min(span * 0.10, span), 0.001)
+                    self._respes_preedge_center = float(hv_valid[0] + width * 0.5)
+                    self._respes_preedge_width = width
                 self._respes_energy_axis = getattr(self, "_respes_energy_axis", "be") or "be"
                 self._respes_work_function = float(getattr(self, "_respes_work_function", 4.5) or 4.5)
                 source_axis = self._respes_source_energy_axis(_image)
-                self._respes_cut_position = self._respes_default_cut_position(
-                    x, hv, self._respes_cut_type, source_axis, self._respes_work_function
-                )
+                self._respes_cut_position = float(np.nanmedian(hv))
             if self._respes_cut_width is None:
                 self._respes_cut_width = 0.10
             if self._respes_cut_position is None:
@@ -1392,7 +1539,35 @@ class UiMapControlsMixin:
             idx = combo.findData(getattr(self, "_respes_cut_type", "constant_be"))
             if idx >= 0 and combo.currentIndex() != idx:
                 combo.blockSignals(True); combo.setCurrentIndex(idx); combo.blockSignals(False)
-        cut_type = getattr(self, "_respes_cut_type", "constant_be")
+        cut_type = getattr(self, "_respes_cut_type", "none")
+        active_cut = cut_type != "none"
+        for name in ("sb_respes_position", "sb_respes_width", "btn_respes_add_trace", "lbl_respes_position"):
+            widget = getattr(self, name, None)
+            if widget is not None: widget.setEnabled(active_cut)
+        plot_button = getattr(self, "btn_respes_add_trace", None)
+        if plot_button is not None:
+            plot_button.setVisible(active_cut)
+        # No inert position/width fields when cuts are disabled.
+        for name in ("sb_respes_position", "sb_respes_width", "lbl_respes_position"):
+            widget = getattr(self, name, None)
+            if widget is not None: widget.setVisible(active_cut)
+        # QFormLayout owns the 'Cut width' label independently; hide its row.
+        form = getattr(self, "_respes_cuts_form", None)
+        if form is not None:
+            for row in (0, 1):
+                form.setRowVisible(row, active_cut)
+        pre_enabled = bool(getattr(self, "_respes_preedge_enabled", False))
+        chk = getattr(self, "chk_respes_preedge", None)
+        if chk is not None:
+            chk.blockSignals(True); chk.setChecked(pre_enabled); chk.blockSignals(False)
+            chk.setEnabled(self._current_map_normalization_mode() == "none" or pre_enabled)
+        for name, value in (("sb_respes_preedge_center", getattr(self, "_respes_preedge_center", None)),
+                            ("sb_respes_preedge_width", getattr(self, "_respes_preedge_width", None))):
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.setEnabled(pre_enabled)
+                if value is not None:
+                    widget.blockSignals(True); widget.setValue(float(value)); widget.blockSignals(False)
         label = getattr(self, "lbl_respes_position", None)
         if label is not None:
             label.setText("BE" if cut_type == "constant_be" else ("KE" if cut_type == "constant_ke" else "hν"))
@@ -1417,11 +1592,14 @@ class UiMapControlsMixin:
         if panel is not None:
             panel.setVisible(False)
         self._respes_dataset_key = None
-        self._respes_cut_type = "constant_be"
+        self._respes_cut_type = "none"
         self._respes_cut_position = None
         self._respes_cut_width = None
         self._respes_energy_axis = "be"
         self._respes_work_function = 4.5
+        self._respes_preedge_enabled = False
+        self._respes_preedge_center = None
+        self._respes_preedge_width = None
         try:
             self.plot_area._respes_cut_state = None
             self.plot_area._respes_cut_drag = None
@@ -1429,6 +1607,7 @@ class UiMapControlsMixin:
             pass
 
     def _update_respes_availability(self) -> None:
+        self._sync_map_normalization_options()
         button = getattr(self, "btn_respes_analysis", None)
         panel = getattr(self, "respes_side_panel", None)
         if button is None:
@@ -1462,11 +1641,57 @@ class UiMapControlsMixin:
         self._sync_respes_controls()
         self._update_plot_from_selected()
 
+    def _on_respes_preedge_toggled(self, enabled: bool) -> None:
+        if enabled and self._current_map_normalization_mode() != "none":
+            self.chk_respes_preedge.blockSignals(True)
+            self.chk_respes_preedge.setChecked(False)
+            self.chk_respes_preedge.blockSignals(False)
+            return
+        self._respes_preedge_enabled = bool(enabled)
+        if enabled and (self._respes_preedge_center is None or self._respes_preedge_width is None):
+            self._seed_respes_preedge_interval()
+        self._sync_respes_controls()
+        self._update_plot_from_selected()
+
+    def _seed_respes_preedge_interval(self):
+        ctx = self._respes_map_context()
+        if ctx is None: return
+        import numpy as np
+        hv = np.sort(np.asarray(ctx[2], dtype=float))
+        hv = hv[np.isfinite(hv)]
+        if hv.size < 2: return
+        span = float(hv[-1] - hv[0])
+        width = max(min(span * 0.10, span), 0.001)
+        self._respes_preedge_width = width
+        self._respes_preedge_center = float(hv[0] + width * 0.5)
+
+    def _on_respes_preedge_numeric_changed(self, _value=None) -> None:
+        if not getattr(self, "_respes_preedge_enabled", False): return
+        self._respes_preedge_center = float(self.sb_respes_preedge_center.value())
+        self._respes_preedge_width = float(self.sb_respes_preedge_width.value())
+        self._update_plot_from_selected()
+
+    def _on_respes_preedge_interval_from_plot(self, interval, final=False) -> None:
+        if not getattr(self, "_respes_preedge_enabled", False): return
+        lo, hi = sorted(map(float, interval))
+        if hi <= lo: return
+        self._respes_preedge_center = 0.5 * (lo + hi)
+        self._respes_preedge_width = hi - lo
+        for widget, value in ((getattr(self, "sb_respes_preedge_center", None), self._respes_preedge_center),
+                              (getattr(self, "sb_respes_preedge_width", None), self._respes_preedge_width)):
+            if widget is not None:
+                widget.blockSignals(True); widget.setValue(value); widget.blockSignals(False)
+        if final: self._update_plot_from_selected()
+
     def _on_respes_cut_type_changed(self, _index: int = -1) -> None:
         combo = getattr(self, "cb_respes_cut_type", None)
         if combo is None:
             return
-        self._respes_cut_type = str(combo.currentData() or "constant_be")
+        self._respes_cut_type = str(combo.currentData() or "none")
+        if self._respes_cut_type == "none":
+            self._sync_respes_controls()
+            self._update_plot_from_selected()
+            return
         # Re-seed the position for the new coordinate convention only if the
         # existing value is outside a sensible range for the current map.
         ctx = self._respes_map_context()
@@ -1827,3 +2052,76 @@ class UiMapControlsMixin:
                 window.terminate_session()
             except Exception:
                 pass
+
+    def _export_map_format(self, file_format="ascii") -> None:
+        """Export the unresampled, processed map, regardless of inspection view."""
+        from pathlib import Path
+        import numpy as np
+        from PyQt6.QtWidgets import QFileDialog
+        from .map_exchange import MapData, write_ascii_map, write_ibw_map
+
+        images = list(self._plot_selection_controller.collect_selection().images or [])
+        if len(images) != 1:
+            QMessageBox.information(self, "Export map", "Select exactly one 2D map to export.")
+            return
+        if getattr(self, "_respes_preedge_enabled", False) and self._current_map_normalization_mode() != "none":
+            QMessageBox.warning(self, "Export map", "Reference subtraction and normalization cannot be combined.")
+            return
+        images = list(self._apply_map_normalization(images))
+        image = images[0]
+        x, row_ids, z, title, xlabel = image[:5]
+        physical_y = image[6] if len(image) >= 7 and image[6] is not None else row_ids
+        second_label = str(image[7] or "Iteration") if len(image) >= 8 else "Iteration"
+        mode = self._current_map_normalization_mode()
+        info = {
+            "title": str(title),
+            "processing": "PANDA 0.12.4",
+            "normalization": mode,
+            "normalization_interval_eV": self._current_map_norm_interval(),
+            "reference_subtraction": bool(getattr(self, "_respes_preedge_enabled", False)),
+            "reference_photon_energy_center_eV": getattr(self, "_respes_preedge_center", None),
+            "reference_photon_energy_width_eV": getattr(self, "_respes_preedge_width", None),
+            "analyzer_work_function_eV": float(getattr(self, "_respes_work_function", 4.5)),
+            "original_grid": True,
+        }
+        data = MapData(np.asarray(x,dtype=float),np.asarray(physical_y,dtype=float),
+                       np.asarray(z,dtype=float),str(xlabel),second_label,info)
+        ibw = file_format == "ibw"
+        extension = ".ibw" if ibw else ".txt"
+        initial = str(Path(getattr(self, "_current_data_directory", Path.home())) / ("processed_map" + extension))
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export processed 2D map", initial,
+            "Igor Binary Wave (*.ibw)" if ibw else "PANDA ASCII matrix (*.txt)")
+        if not filename:
+            return
+        filename = str(Path(filename).with_suffix(extension))
+        try:
+            if ibw:
+                write_ibw_map(filename, data)
+            else:
+                write_ascii_map(filename, data)
+        except Exception as exc:
+            QMessageBox.critical(self,"Map export failed",str(exc))
+
+    def _export_ascii_map(self) -> None:
+        self._export_map_format("ascii")
+
+    def _export_ibw_map(self) -> None:
+        self._export_map_format("ibw")
+
+    def _import_ascii_map(self) -> None:
+        """Import a PANDA ASCII map through the existing TXT tree infrastructure."""
+        from pathlib import Path
+        from PyQt6.QtWidgets import QFileDialog
+        from .map_exchange import read_ascii_map
+        filename, _ = QFileDialog.getOpenFileName(self,"Import 2D map",
+                    str(getattr(self,"_current_data_directory",Path.home())),
+                    "PANDA ASCII matrix (*.txt)")
+        if not filename: return
+        path = Path(filename)
+        try:
+            read_ascii_map(path)  # Validate before invoking the normal TXT loader.
+        except Exception as exc:
+            QMessageBox.critical(self,"Map import failed",str(exc))
+            return
+        self._load_paths(paths=[path], kind="TXT")

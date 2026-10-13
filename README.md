@@ -10,6 +10,8 @@ PANDA is a Python software package with an interactive graphical interface for l
 - Work with individual spectra, repeated acquisitions, and two-dimensional spectral maps.
 - Calibrate energy scales and normalize intensities while retaining source provenance.
 - Inspect maps in Simple, Lines, and ROI views, including physical second axes when available.
+- Analyze photon-energy maps with BE/KE interval normalization, photon-energy reference normalization, ResPES cuts, and reference-spectrum subtraction.
+- Export processed 2D maps as ASCII matrices or Igor Binary Wave files, and import those map formats.
 - Identify likely photoemission signals using built-in reference data.
 - Fit individual spectra using configurable peak/background models.
 - Prepare and run sequence/batch fits across related spectra, including spin-orbit doublets.
@@ -25,7 +27,7 @@ PANDA is a Python software package with an interactive graphical interface for l
 | **IBW** | Igor Binary Wave | 1D/2D data, metadata, Live Monitor |
 | **XY** | SPECS/SpecsLab Prodigy | Single and repeated spectra, Prodigy metadata, large lazy iteration trees, physical second axes when available |
 
-All supported formats enter the same PANDA Raw Data workflow after loading.
+All supported acquisition formats enter the same PANDA Raw Data workflow after loading. For 2D maps, **Export / Import** beside **Normalize** exchanges processed numerical maps as a general ASCII matrix or Igor IBW. The ASCII matrix is not a Scienta acquisition-format TXT file.
 
 ## Installation
 

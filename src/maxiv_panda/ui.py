@@ -196,6 +196,7 @@ class PlotArea(MapPlotMixin, QWidget):
         self.canvas.mpl_connect("figure_leave_event", self._hide_intensity_axis_tooltip)
         self.canvas.mpl_connect("button_press_event", self._on_map_palette_right_click)
         self.canvas.mpl_connect("motion_notify_event", self._maybe_show_map_palette_hint)
+        self.canvas.mpl_connect("motion_notify_event", self._refresh_map_coordinate_readout)
         self.canvas.mpl_connect("figure_leave_event", self._cancel_map_palette_hint_dwell)
 
         self._map_cross_state = None
@@ -233,6 +234,18 @@ class PlotArea(MapPlotMixin, QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self.toolbar)
+        # ResPES readout floats inside the map canvas, not in a layout row or
+        # the toolbar's overflow-prone area. It must not intercept mouse drags.
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QLabel
+        self.map_coordinate_label = QLabel(self.canvas)
+        self.map_coordinate_label.setObjectName("respesMapCoordinates")
+        self.map_coordinate_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.map_coordinate_label.setStyleSheet(
+            "QLabel#respesMapCoordinates { background-color: rgba(255,255,255,220); "
+            "color: black; padding: 2px 5px; border-radius: 2px; }"
+        )
+        self.map_coordinate_label.hide()
         layout.addWidget(self.canvas)
 
         self.clear("Load a TXT, IBW, or XY file to begin")
@@ -515,12 +528,13 @@ class PlotArea(MapPlotMixin, QWidget):
         map_norm_show_region: bool = False,
         map_norm_callback: Any | None = None,
         respes_enabled: bool = False,
-        respes_cut_type: str = "constant_be",
+        respes_cut_type: str = "none",
         respes_position: float | None = None,
         respes_width: float | None = None,
         respes_callback: Any | None = None,
         respes_energy_axis: str = "be",
         respes_work_function: float = 4.5,
+        respes_subtracted: bool = False,
     ) -> list[Any]:
         """Plot multiple payloads at once.
 
@@ -592,6 +606,7 @@ class PlotArea(MapPlotMixin, QWidget):
                     energy_axis=respes_energy_axis, work_function=respes_work_function,
                     norm_interval=map_norm_interval if map_norm_show_region else None,
                     norm_mode=map_norm_mode, norm_callback=map_norm_callback,
+                    subtracted=respes_subtracted,
                 )
             if map_roi_enabled:
                 return self._plot_single_map_with_roi(
@@ -769,9 +784,19 @@ class PlotArea(MapPlotMixin, QWidget):
                 # exactly as it does in Lines and ROI.  Mixed map+line overlays
                 # retain the image Axes for the normalization band.
                 _norm_ax = self.ax if not payloads else axr
-                self._draw_map_normalization_band(
-                    _norm_ax, map_norm_interval, map_norm_mode, map_norm_callback
-                )
+                if len(images) == 1 and not payloads:
+                    self._draw_physical_map_normalization_region(
+                        _norm_ax, map_norm_interval, map_norm_mode, map_norm_callback,
+                        image=images[0], x_values=images[0][0],
+                        rows=_map_max_rows,
+                        photon_energy=_map_secondary_y_single,
+                        photon_label=_map_secondary_ylabel_single,
+                        work_function=float(respes_work_function),
+                    )
+                else:
+                    self._draw_map_normalization_band(
+                        _norm_ax, map_norm_interval, map_norm_mode, map_norm_callback
+                    )
 
             # Ensure all maps are visible if multiple regions are mapped.
             try:
@@ -1198,7 +1223,7 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
         # to zero. The existing plot allocation is redistributed when ResPES
         # is shown.
         self.respes_side_panel.setMinimumWidth(0)
-        self.respes_side_panel.setMaximumWidth(190)
+        self.respes_side_panel.setMaximumWidth(270)
         self.respes_side_panel.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
         )
@@ -2273,24 +2298,33 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
             map_roi_pass_callback=getattr(self, "_pass_map_roi_to_plotting", None),
             map_animation_callback=getattr(self, "_open_map_lines_animation_dialog", None),
             map_norm_interval=(
-                getattr(self, "_map_norm_active_interval", None) if processed_map else None
+                (float(self._respes_preedge_center) - 0.5 * float(self._respes_preedge_width),
+                 float(self._respes_preedge_center) + 0.5 * float(self._respes_preedge_width))
+                if processed_map and getattr(self, "_respes_preedge_enabled", False)
+                and self._respes_preedge_center is not None and self._respes_preedge_width is not None
+                else (getattr(self, "_map_norm_active_interval", None) if processed_map else None)
             ),
-            map_norm_mode=getattr(self, "_map_norm_mode", None) if processed_map else None,
+            map_norm_mode=("at_hv" if processed_map and getattr(self, "_respes_preedge_enabled", False)
+                           else getattr(self, "_map_norm_mode", None) if processed_map else None),
             map_norm_show_region=bool(
-                processed_map and getattr(self, "_map_norm_show_region", False)
+                processed_map and (getattr(self, "_respes_preedge_enabled", False)
+                                   or getattr(self, "_map_norm_show_region", False))
             ),
             map_norm_callback=(
-                getattr(self, "_on_map_norm_band_changed_from_plot", None) if processed_map else None
+                (getattr(self, "_on_respes_preedge_interval_from_plot", None)
+                 if getattr(self, "_respes_preedge_enabled", False)
+                 else getattr(self, "_on_map_norm_band_changed_from_plot", None)) if processed_map else None
             ),
             respes_enabled=bool(
                 processed_map and getattr(self, "_respes_is_active_for_current_view", lambda: False)()
             ),
-            respes_cut_type=getattr(self, "_respes_cut_type", "constant_be"),
+            respes_cut_type=getattr(self, "_respes_cut_type", "none"),
             respes_position=getattr(self, "_respes_cut_position", None),
             respes_width=getattr(self, "_respes_cut_width", None),
             respes_callback=getattr(self, "_on_respes_cut_changed_from_plot", None),
             respes_energy_axis=getattr(self, "_respes_energy_axis", "be"),
             respes_work_function=float(getattr(self, "_respes_work_function", 4.5)),
+            respes_subtracted=bool(processed_map and getattr(self, "_respes_preedge_enabled", False)),
         )
         self._apply_curve_color_icons(items_in_order, used_colors)
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.4 - 2026-10-13
+
+### Added
+- Normalize photon-energy maps to fixed KE or photon-energy intervals, with draggable map regions across Simple, Lines, ROI and ResPES views.
+- Subtract a selectable reference spectrum in ResPES analysis; inspect and export maps with negative and positive difference intensities.
+- Export processed 2D maps as ASCII matrices or Igor IBW files, and import the exported formats through a shared map toolbar menu.
+
+### Changed
+- Show normalization methods according to the map axes; ordinary XPS maps keep None, at BE and Area.
+- Start ResPES analysis with no active cut; show a cut and its trace only when the user selects one.
+
+
 ## 0.12.3 - 2026-10-07
 
 ### Changed
@@ -1400,6 +1412,18 @@
 
 # Changelog
 
+## 0.12.4 - 2026-10-13
+
+### Added
+- Normalize photon-energy maps to fixed KE or photon-energy intervals, with draggable map regions across Simple, Lines, ROI and ResPES views.
+- Subtract a selectable reference spectrum in ResPES analysis; inspect and export maps with negative and positive difference intensities.
+- Export processed 2D maps as ASCII matrices or Igor IBW files, and import the exported formats through a shared map toolbar menu.
+
+### Changed
+- Show normalization methods according to the map axes; ordinary XPS maps keep None, at BE and Area.
+- Start ResPES analysis with no active cut; show a cut and its trace only when the user selects one.
+
+
 ## 0.9.35 — 2026-09-04
 
 - Batch fitting: removed the Matplotlib constrained-layout/subplots-adjust warning by disabling the automatic layout engine before applying batch-specific subplot margins.
@@ -1929,6 +1953,18 @@
 - Experimental handbook Auger positions are grouped into broad family ranges; supplementary EADL clustered regions remain distinct.
 
 # Changelog
+
+## 0.12.4 - 2026-10-13
+
+### Added
+- Normalize photon-energy maps to fixed KE or photon-energy intervals, with draggable map regions across Simple, Lines, ROI and ResPES views.
+- Subtract a selectable reference spectrum in ResPES analysis; inspect and export maps with negative and positive difference intensities.
+- Export processed 2D maps as ASCII matrices or Igor IBW files, and import the exported formats through a shared map toolbar menu.
+
+### Changed
+- Show normalization methods according to the map axes; ordinary XPS maps keep None, at BE and Area.
+- Start ResPES analysis with no active cut; show a cut and its trace only when the user selects one.
+
 
 ## 0.9.29 — 2026-09-04
 

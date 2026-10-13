@@ -57,6 +57,15 @@ class MapPlotMixin:
 
     def _restore_toolbar_coordinate_font(self) -> None:
         """Restore the ordinary toolbar font after leaving MAP rendering."""
+        self._map_coordinate_readout_enabled = False
+        self._map_compact_coordinates = False
+        native = getattr(getattr(self, "toolbar", None), "locLabel", None)
+        if native is not None:
+            native.setVisible(True)
+        readout = getattr(self, "map_coordinate_label", None)
+        if readout is not None:
+            readout.clear()
+            readout.setVisible(False)
         try:
             label = getattr(getattr(self, "toolbar", None), "locLabel", None)
             font = getattr(self, "_map_toolbar_default_font", None)
@@ -159,6 +168,7 @@ class MapPlotMixin:
     def _set_map_coordinate_formatter(
         self, axes, x_values, rows: int, xlabel: str, iteration_labels,
         secondary_y=None, secondary_label: str = "", z_values=None,
+        *, compact_respes: bool = False,
     ) -> None:
         """Show physical MAP coordinates in the Matplotlib toolbar.
 
@@ -168,6 +178,18 @@ class MapPlotMixin:
         the physical second dimension (e.g. photon energy) or to iteration.
         """
         self._stabilize_map_toolbar_coordinate_font()
+        self._map_coordinate_readout_enabled = True
+        # The toolbar locLabel can be hidden by Qt overflow in ResPES. Use a
+        # non-interactive overlay on the canvas, with no extra layout row.
+        is_respes = bool(compact_respes)
+        self._map_compact_coordinates = is_respes
+        inline = getattr(self, "map_coordinate_label", None)
+        native = getattr(getattr(self, "toolbar", None), "locLabel", None)
+        if inline is not None:
+            inline.clear()
+            inline.hide()  # display only while cursor is on the map
+        if native is not None:
+            native.setVisible(not is_respes)
         try:
             import numpy as _np
             x_arr = _np.asarray(x_values, dtype=float).reshape(-1)
@@ -253,6 +275,54 @@ class MapPlotMixin:
             for ax in axes:
                 if ax is not None:
                     ax.format_coord = _fmt
+        except Exception:
+            pass
+
+    def _refresh_map_coordinate_readout(self, event) -> None:
+        """Display live physical map coordinates without a new layout row.
+
+        Matplotlib's toolbar label can be hidden by the Qt overflow button;
+        ResPES uses an overlay parented directly to the map canvas instead.
+        Read the original map axes from pixels even when the twin axis handles
+        the event. The overlay is transparent to mouse events, including drags.
+        """
+        try:
+            ax = getattr(self, "ax", None)
+            if ax is None or event is None:
+                return
+            if not getattr(self, "_map_coordinate_readout_enabled", False):
+                return
+            native = getattr(getattr(self, "toolbar", None), "locLabel", None)
+            overlay = getattr(self, "map_coordinate_label", None)
+            compact = bool(getattr(self, "_map_compact_coordinates", False))
+            if event.x is None or event.y is None or not ax.bbox.contains(event.x, event.y):
+                if compact and overlay is not None:
+                    overlay.hide()
+                return
+            x, y = ax.transData.inverted().transform((event.x, event.y))
+            value = ax.format_coord(float(x), float(y))
+            if not value:
+                return
+            if not compact:
+                if native is not None:
+                    native.setText(value)
+                return
+            if overlay is None:
+                return
+            parts = [part.strip() for part in value.split("  ") if part.strip()]
+            caption = "    ".join(parts).replace("Intensity = ", "I = ")
+            overlay.setText(caption)
+            overlay.adjustSize()
+            canvas = getattr(self, "canvas", None)
+            if canvas is None:
+                return
+            # mpl coordinates originate at bottom left; Qt coordinates at top.
+            # Keep the label inside the upper-left of the data rectangle.
+            left = max(0, int(ax.bbox.x0) + 7)
+            top = max(0, int(canvas.height() - ax.bbox.y1) + 7)
+            overlay.move(min(left, max(0, canvas.width() - overlay.width())), top)
+            overlay.raise_()
+            overlay.show()
         except Exception:
             pass
 
@@ -731,6 +801,11 @@ class MapPlotMixin:
         """
         self._map_norm_band_state = None
         self._map_norm_drag = None
+        # KE and Photon-E intervals need the physical ResPES geometry handled
+        # by _draw_respes_normalization_region().  Never misrepresent them as
+        # ordinary vertical X-axis bands in generic Simple/Lines/ROI maps.
+        if mode in {"at_ke", "at_hv"}:
+            return
         if ax is None or interval is None:
             return
         try:
@@ -765,33 +840,172 @@ class MapPlotMixin:
             self._map_norm_band_state = None
             self._map_norm_drag = None
 
+    def _draw_physical_map_normalization_region(
+        self, ax, interval, mode, callback, *, image, x_values, rows,
+        photon_energy=None, photon_label="", work_function=4.5,
+    ) -> None:
+        """Draw a normalization interval on a generic map in measured coordinates.
+
+        On photon-energy maps reuse the same physical BE/KE/PhE geometry and
+        drag machinery as ResPES. Ordinary maps retain the legacy X-band.
+        """
+        physical = mode in {"at_be", "at_ke", "at_hv"}
+        if (physical and photon_energy is not None
+                and "photon" in str(photon_label).lower()):
+            source_axis = self._respes_source_energy_axis(image[4])
+            self._draw_respes_normalization_region(
+                ax, interval, mode, callback,
+                photon_energy=photon_energy, rows=rows,
+                energy_axis=source_axis, source_axis=source_axis,
+                source_x=x_values, work_function=work_function,
+            )
+        elif mode in {"at_be", "area"}:
+            # A generic map without a physical photon-energy axis cannot
+            # represent a diagonal KE band or a horizontal photon-energy band.
+            self._draw_map_normalization_band(ax, interval, mode, callback)
+        else:
+            self._map_norm_band_state = None
+            self._map_norm_drag = None
+
+    def _draw_respes_normalization_region(
+        self, ax, interval, mode, callback, *, photon_energy, rows,
+        energy_axis="be", source_axis="be", source_x=None, work_function=4.5,
+        region_label="Norm",
+    ) -> None:
+        """Draw a physical BE/KE/Photon-E normalization region on a ResPES map.
+
+        The interval remains defined in its physical coordinate.  It is vertical
+        when that coordinate is the displayed X axis, diagonal when BE/KE is
+        transformed to the opposite electron-energy axis, and horizontal for a
+        photon-energy interval.
+        """
+        self._map_norm_band_state = None
+        self._map_norm_drag = None
+        if ax is None or interval is None or mode not in {"at_be", "at_ke", "at_hv"}:
+            return
+        try:
+            from matplotlib.patches import Polygon
+            hv = np.asarray(photon_energy, dtype=float).reshape(-1)
+            if hv.size != int(rows) or hv.size < 2:
+                return
+            low, high = sorted((float(interval[0]), float(interval[1])))
+            if not high > low:
+                return
+            centers = np.arange(int(rows), dtype=float) + 0.5
+            phi = float(work_function)
+            display_axis = "ke" if str(energy_axis).lower() == "ke" else "be"
+            source_axis = "ke" if str(source_axis).lower() == "ke" else "be"
+            sx = np.asarray(source_x if source_x is not None else [], dtype=float)
+            sx = sx[np.isfinite(sx)]
+            if mode == "at_hv":
+                pmin, pmax = float(np.nanmin(hv)), float(np.nanmax(hv))
+            elif sx.size >= 2:
+                xmin, xmax = float(np.nanmin(sx)), float(np.nanmax(sx))
+                if mode == "at_ke":
+                    if source_axis == "ke": pmin, pmax = xmin, xmax
+                    else:
+                        pmin = float(np.max(hv - phi - xmax))
+                        pmax = float(np.min(hv - phi - xmin))
+                else:
+                    if source_axis == "be": pmin, pmax = xmin, xmax
+                    else:
+                        pmin = float(np.max(hv - phi - xmax))
+                        pmax = float(np.min(hv - phi - xmin))
+            else:
+                pmin, pmax = low, high
+            if pmax <= pmin:
+                return
+
+            def hv_at_y(y):
+                return float(np.interp(float(y), centers, hv))
+
+            def hv_to_y(value):
+                order = np.argsort(hv)
+                return float(np.interp(float(value), hv[order], centers[order]))
+
+            def coordinate_from_event(event):
+                if event is None or event.xdata is None or event.ydata is None:
+                    return None
+                if mode == "at_hv":
+                    return hv_at_y(event.ydata)
+                if mode == "at_be":
+                    return float(event.xdata) if display_axis == "be" else hv_at_y(event.ydata) - float(event.xdata) - phi
+                return float(event.xdata) if display_axis == "ke" else hv_at_y(event.ydata) - float(event.xdata) - phi
+
+            state = {
+                "ax": ax, "low": low, "high": high, "pmin": pmin, "pmax": pmax,
+                "mode": mode, "callback": callback, "event_axes": {ax},
+                "hv": hv, "centers": centers, "phi": phi, "energy_axis": display_axis,
+                "coordinate_from_event": coordinate_from_event, "artists": [],
+            }
+
+            def boundary_xy(value):
+                if mode == "at_hv":
+                    yv = hv_to_y(value)
+                    xlo, xhi = ax.get_xlim()
+                    return np.asarray([xlo, xhi], dtype=float), np.asarray([yv, yv], dtype=float)
+                if (mode == "at_be" and display_axis == "be") or (mode == "at_ke" and display_axis == "ke"):
+                    return np.asarray([value, value], dtype=float), np.asarray([0.0, float(rows)], dtype=float)
+                # Opposite BE/KE display: x = hnu - physical_energy - phi.
+                return hv - float(value) - phi, centers.copy()
+
+            def render(lo, hi):
+                for artist in list(state.get("artists", [])):
+                    try: artist.remove()
+                    except Exception: pass
+                x1, y1 = boundary_xy(lo); x2, y2 = boundary_xy(hi)
+                if mode == "at_hv":
+                    ylo, yhi = hv_to_y(lo), hv_to_y(hi)
+                    patch = ax.axhspan(min(ylo,yhi), max(ylo,yhi), facecolor="tab:orange", alpha=0.13, edgecolor="none", zorder=1.2)
+                    l1 = ax.axhline(ylo, color="tab:orange", linestyle="--", linewidth=1.25, alpha=0.9, zorder=2.2)
+                    l2 = ax.axhline(yhi, color="tab:orange", linestyle="--", linewidth=1.25, alpha=0.9, zorder=2.2)
+                    label = ax.text(0.985, 0.5*(ylo+yhi), region_label, transform=ax.get_yaxis_transform(), ha="right", va="center", fontsize=8, color="tab:orange", zorder=2.3, clip_on=True)
+                elif x1.size == 2 and np.allclose(x1[0], x1[1]) and x2.size == 2 and np.allclose(x2[0], x2[1]):
+                    patch = ax.axvspan(float(x1[0]), float(x2[0]), facecolor="tab:orange", alpha=0.13, edgecolor="none", zorder=1.2)
+                    l1 = ax.axvline(float(x1[0]), color="tab:orange", linestyle="--", linewidth=1.25, alpha=0.9, zorder=2.2)
+                    l2 = ax.axvline(float(x2[0]), color="tab:orange", linestyle="--", linewidth=1.25, alpha=0.9, zorder=2.2)
+                    label = ax.text(0.5*(float(x1[0])+float(x2[0])), 0.985, region_label, transform=ax.get_xaxis_transform(), ha="center", va="top", fontsize=8, color="tab:orange", zorder=2.3, clip_on=True)
+                else:
+                    # Build the filled strip from the two physical boundaries.
+                    verts = np.column_stack((np.concatenate((x1, x2[::-1])), np.concatenate((y1, y2[::-1]))))
+                    patch = Polygon(verts, closed=True, facecolor="tab:orange", alpha=0.13, edgecolor="none", zorder=1.2)
+                    ax.add_patch(patch)
+                    l1 = ax.plot(x1, y1, color="tab:orange", linestyle="--", linewidth=1.25, alpha=0.9, zorder=2.2)[0]
+                    l2 = ax.plot(x2, y2, color="tab:orange", linestyle="--", linewidth=1.25, alpha=0.9, zorder=2.2)[0]
+                    mid = 0.5*(lo+hi); xm, ym = boundary_xy(mid)
+                    label = ax.text(float(xm[-1]), float(ym[-1]), region_label, ha="left", va="bottom", fontsize=8, color="tab:orange", zorder=2.3, clip_on=True)
+                state["artists"] = [patch, l1, l2, label]
+                state["boundary_xy"] = (boundary_xy(lo), boundary_xy(hi))
+
+            state["render"] = render
+            self._map_norm_band_state = state
+            render(low, high)
+        except Exception:
+            self._map_norm_band_state = None
+            self._map_norm_drag = None
+
     def _update_map_norm_band_artists(self, low: float, high: float, notify: bool = True) -> None:
         state = self._map_norm_band_state
         if not state:
             return
         low, high = sorted((float(low), float(high)))
         state["low"], state["high"] = low, high
-        patch = state.get("patch")
-        try:
-            patch.set_x(low)
-            patch.set_width(high - low)
-        except Exception:
+        render = state.get("render")
+        if callable(render):
+            render(low, high)
+        else:
+            patch = state.get("patch")
             try:
-                xy = patch.get_xy()
-                xy[:, 0] = [low, low, high, high, low]
-                patch.set_xy(xy)
+                patch.set_x(low); patch.set_width(high-low)
             except Exception:
-                pass
-        state["left_line"].set_xdata([low, low])
-        state["right_line"].set_xdata([high, high])
-        state["label"].set_x(0.5 * (low + high))
+                try:
+                    xy=patch.get_xy(); xy[:,0]=[low,low,high,high,low]; patch.set_xy(xy)
+                except Exception: pass
+            state["left_line"].set_xdata([low,low]); state["right_line"].set_xdata([high,high]); state["label"].set_x(0.5*(low+high))
         if notify:
-            try:
-                state["callback"]((low, high), False)
-            except TypeError:
-                state["callback"]((low, high))
-            except Exception:
-                pass
+            try: state["callback"]((low,high),False)
+            except TypeError: state["callback"]((low,high))
+            except Exception: pass
 
     def _map_primary_control_claims_press(self, event) -> bool:
         """Return True when a Lines/ROI handle should own a map press.
@@ -851,62 +1065,138 @@ class MapPlotMixin:
                 pass
         return False
 
+    def _map_norm_event_in_main_axes(self, state, event):
+        """Return event coordinates expressed in the normalization map Axes.
+
+        ResPES uses a twinned right-hand Y axis.  Depending on Matplotlib/Qt
+        event routing, that twin can receive the mouse event even when the
+        visible interaction is over the main map.  Convert from display pixels
+        through the main Axes instead of trusting ``event.inaxes``/``xdata``.
+        """
+        if not state or event is None or event.x is None or event.y is None:
+            return None
+        ax = state.get("ax")
+        if ax is None:
+            return None
+        try:
+            if not ax.bbox.contains(float(event.x), float(event.y)):
+                return None
+            xdata, ydata = ax.transData.inverted().transform((float(event.x), float(event.y)))
+            class _MapNormEvent:
+                pass
+            proxy = _MapNormEvent()
+            proxy.x = float(event.x); proxy.y = float(event.y)
+            proxy.xdata = float(xdata); proxy.ydata = float(ydata)
+            proxy.inaxes = ax; proxy.button = getattr(event, "button", None)
+            return proxy
+        except Exception:
+            return None
+
+    def _map_norm_boundary_distances(self, event):
+        """Distance to each edge at the *current cursor position*.
+
+        Keep the proven 0.12.3 pixel-nearest-edge interaction.  ResPES only
+        converts the normalization coordinate into displayed X (or Y for hν)
+        at the cursor; geometry must not change how an edge is selected.
+        """
+        state = getattr(self, "_map_norm_band_state", None)
+        if not state:
+            return ()
+        ev = self._map_norm_event_in_main_axes(state, event)
+        if ev is None:
+            return ()
+        ax = state["ax"]
+        try:
+            low, high = float(state["low"]), float(state["high"])
+            if state.get("mode") == "at_hv":
+                hv = np.asarray(state["hv"], dtype=float)
+                centers = np.asarray(state["centers"], dtype=float)
+                order = np.argsort(hv)
+                yl = float(np.interp(low, hv[order], centers[order]))
+                yh = float(np.interp(high, hv[order], centers[order]))
+                pl = ax.transData.transform((ev.xdata, yl))[1]
+                ph = ax.transData.transform((ev.xdata, yh))[1]
+                return (abs(ev.y - pl), abs(ev.y - ph))
+            hv_at_y = float(np.interp(ev.ydata, state["centers"], state["hv"]))
+            phi = float(state["phi"])
+            display = state["energy_axis"]
+            mode = state["mode"]
+            if (mode == "at_be" and display == "be") or (mode == "at_ke" and display == "ke"):
+                xlow, xhigh = low, high
+            else:
+                xlow, xhigh = hv_at_y - phi - low, hv_at_y - phi - high
+            pl = ax.transData.transform((xlow, ev.ydata))[0]
+            ph = ax.transData.transform((xhigh, ev.ydata))[0]
+            return (abs(ev.x - pl), abs(ev.x - ph))
+        except Exception:
+            return ()
+
+    def _map_norm_boundary_hit(self, event, tolerance_px: float = 8.0) -> bool:
+        distances = self._map_norm_boundary_distances(event)
+        return bool(distances and min(distances) <= float(tolerance_px))
+
     def _on_map_norm_band_press(self, event) -> None:
         button = getattr(getattr(event, "button", None), "value", getattr(event, "button", None))
         if button not in (None, 1):
             return
-        state = self._map_norm_band_state
-        # A ResPES cut may lie inside a broad normalization band.  Its press
-        # handler runs first and claims only clicks near the cut; leave those
-        # clicks to the specialised analysis instead of starting two drags.
-        if getattr(self, "_respes_cut_drag", None) is not None:
+        state = getattr(self, "_map_norm_band_state", None)
+        if not state or getattr(self, "_respes_cut_drag", None) is not None:
             return
         if self._map_primary_control_claims_press(event):
             return
-        if not state or event.inaxes is not state.get("ax") or event.x is None or event.xdata is None:
+        ev = self._map_norm_event_in_main_axes(state, event)
+        if ev is None:
             return
         try:
-            ax = state["ax"]
             low, high = float(state["low"]), float(state["high"])
-            px_low = ax.transData.transform((low, 0.0))[0]
-            px_high = ax.transData.transform((high, 0.0))[0]
-            dl, dh = abs(float(event.x) - px_low), abs(float(event.x) - px_high)
-            tol = 8.0
-            if min(dl, dh) <= tol:
-                mode = "left" if dl <= dh else "right"
-            elif low <= float(event.xdata) <= high:
-                mode = "move"
-            else:
+            coord_fn = state.get("coordinate_from_event")
+            coordinate = coord_fn(ev) if callable(coord_fn) else ev.xdata
+            if coordinate is None:
                 return
+            if callable(coord_fn):
+                # Exactly the 0.12.3 rule: nearest edge within 8 pixels,
+                # otherwise interior moves the band.  Lock mode on press.
+                distances = self._map_norm_boundary_distances(ev)
+                if distances and min(distances) <= 8.0:
+                    mode = "left" if distances[0] <= distances[1] else "right"
+                elif low <= float(coordinate) <= high:
+                    mode = "move"
+                else:
+                    return
+            else:
+                ax = state["ax"]
+                dl = abs(float(ev.x) - ax.transData.transform((low, ev.ydata))[0])
+                dh = abs(float(ev.x) - ax.transData.transform((high, ev.ydata))[0])
+                if min(dl, dh) <= 8.0:
+                    mode = "left" if dl <= dh else "right"
+                elif low <= float(coordinate) <= high:
+                    mode = "move"
+                else:
+                    return
             self._map_norm_drag = {
-                "mode": mode, "x0": float(event.xdata),
-                "low0": low, "high0": high,
+                "mode": mode, "x0": float(coordinate), "low0": low, "high0": high,
             }
         except Exception:
             self._map_norm_drag = None
 
     def _on_map_norm_band_motion(self, event) -> None:
-        state, drag = self._map_norm_band_state, self._map_norm_drag
-        if not state or not drag or event.inaxes not in state.get("event_axes", {state.get("ax")}) or event.xdata is None:
-            return
-        xmin, xmax = float(state["xmin"]), float(state["xmax"])
-        low0, high0 = float(drag["low0"]), float(drag["high0"])
-        xnow = float(event.xdata)
-        min_width = max((xmax - xmin) * 1.0e-9, 1.0e-9)
-        if drag["mode"] == "move":
-            width = high0 - low0
-            center = 0.5 * (low0 + high0) + (xnow - float(drag["x0"]))
-            half = 0.5 * width
-            center = min(max(center, xmin + half), xmax - half)
-            low, high = center - half, center + half
-        elif drag["mode"] == "left":
-            low = min(max(xnow, xmin), high0 - min_width)
-            high = high0
+        state,drag=self._map_norm_band_state,self._map_norm_drag
+        if not state or not drag: return
+        map_event=self._map_norm_event_in_main_axes(state,event)
+        if map_event is None: return
+        coord_fn=state.get("coordinate_from_event")
+        if callable(coord_fn): xnow=coord_fn(map_event); xmin=float(state["pmin"]); xmax=float(state["pmax"])
         else:
-            low = low0
-            high = max(min(xnow, xmax), low0 + min_width)
-        self._update_map_norm_band_artists(low, high, notify=True)
-        self.canvas.draw_idle()
+            if map_event.xdata is None: return
+            xnow=float(map_event.xdata); xmin=float(state["xmin"]); xmax=float(state["xmax"])
+        if xnow is None: return
+        xnow=float(xnow); low0,high0=float(drag["low0"]),float(drag["high0"]); min_width=max((xmax-xmin)*1e-9,1e-9)
+        if drag["mode"]=="move":
+            width=high0-low0; center=0.5*(low0+high0)+(xnow-float(drag["x0"])); half=0.5*width
+            center=min(max(center,xmin+half),xmax-half); low,high=center-half,center+half
+        elif drag["mode"]=="left": low,high=min(max(xnow,xmin),high0-min_width),high0
+        else: low,high=low0,max(min(xnow,xmax),low0+min_width)
+        self._update_map_norm_band_artists(low,high,notify=True); self.canvas.draw_idle()
 
     def _on_map_norm_band_release(self, _event) -> None:
         state = self._map_norm_band_state
@@ -1056,7 +1346,12 @@ class MapPlotMixin:
             extent=[xmin, xmax, 0.0, float(rows)], cmap=cmap
         )
         self._disable_map_artist_cursor_data(map_image)
-        self._draw_map_normalization_band(ax_map, norm_interval, norm_mode, norm_callback)
+        self._draw_physical_map_normalization_region(
+            ax_map, norm_interval, norm_mode, norm_callback,
+            image=image, x_values=x_arr, rows=rows,
+            photon_energy=secondary_y, photon_label=secondary_ylabel,
+            work_function=float(getattr(self, "_respes_work_function", 4.5)),
+        )
         ax_map.set_title(title)
         ax_map.set_ylabel("")
         ax_map.tick_params(axis="x", labelbottom=False)
@@ -1544,7 +1839,12 @@ class MapPlotMixin:
             extent=[xmin, xmax, 0.0, float(rows)], cmap=cmap,
         )
         self._disable_map_artist_cursor_data(map_image)
-        self._draw_map_normalization_band(ax_map, norm_interval, norm_mode, norm_callback)
+        self._draw_physical_map_normalization_region(
+            ax_map, norm_interval, norm_mode, norm_callback,
+            image=image, x_values=x_arr, rows=rows,
+            photon_energy=secondary_y, photon_label=secondary_ylabel,
+            work_function=float(getattr(self, "_respes_work_function", 4.5)),
+        )
         ax_map.set_title(title)
         ax_map.set_ylabel("")
         ax_map.tick_params(axis="x", labelbottom=False)
@@ -2768,6 +3068,12 @@ class MapPlotMixin:
         state = self._respes_cut_state
         if not state or getattr(self, "_map_norm_drag", None) is not None:
             return
+        # Normalization boundaries are explicit draggable controls.  They get
+        # first refusal over the ResPES cut when the two overlays cross or sit
+        # close together; otherwise the cut handler can make the normalization
+        # edge appear completely non-draggable.
+        if self._map_norm_boundary_hit(event):
+            return
         if event.inaxes not in state.get("event_axes", {state.get("ax")}) or event.x is None or event.y is None or event.xdata is None or event.ydata is None:
             return
         try:
@@ -2863,6 +3169,7 @@ class MapPlotMixin:
         cut_type="constant_be", position=None, width=None, cut_callback=None,
         energy_axis="be", work_function=4.5,
         norm_interval=None, norm_mode=None, norm_callback=None,
+        subtracted=False,
     ):
         """Render Simple ResPES map plus a dedicated intensity-vs-photon-energy cut trace."""
         try:
@@ -2907,15 +3214,26 @@ class MapPlotMixin:
                 x_arr, Z_arr = source_x, source_Z
         xlabel = "Kinetic Energy [eV]" if energy_axis == "ke" else "Binding Energy [eV]"
 
-        gs = self.fig.add_gridspec(
-            2, 1, height_ratios=(4.0, 1.35), left=0.125, right=0.875,
-            bottom=0.13, top=0.94, hspace=0.20,
-        )
+        if cut_type == "none":
+            gs = self.fig.add_gridspec(1, 1, left=0.125, right=0.875,
+                                      bottom=0.13, top=0.94)
+        else:
+            gs = self.fig.add_gridspec(2, 1, height_ratios=(4.0, 1.35),
+                                      left=0.125, right=0.875,
+                                      bottom=0.13, top=0.94, hspace=0.20)
         ax_map = self.fig.add_subplot(gs[0, 0]); self.ax = ax_map
-        ax_trace = self.fig.add_subplot(gs[1, 0])
+        ax_trace = self.fig.add_subplot(gs[1, 0]) if cut_type != "none" else None
         ax_iteration = ax_map.twinx()
+        image_kw = {}
+        if subtracted:
+            finite = Z_arr[np.isfinite(Z_arr)]
+            if finite.size:
+                amplitude = max(float(np.max(np.abs(finite))), 1e-12)
+                image_kw = {"vmin": -amplitude, "vmax": amplitude}
+            cmap = "RdBu_r"
         map_image = ax_map.imshow(Z_arr, aspect="auto", origin="lower",
-                      extent=[float(x_arr[0]), float(x_arr[-1]), 0.0, float(rows)], cmap=cmap)
+                      extent=[float(x_arr[0]), float(x_arr[-1]), 0.0, float(rows)],
+                      cmap=cmap, **image_kw)
         self._disable_map_artist_cursor_data(map_image)
         ax_map.set_title(title)
         # Unlike generic Lines/ROI, the lower ResPES panel uses photon energy
@@ -2927,7 +3245,7 @@ class MapPlotMixin:
                                    secondary_y, secondary_ylabel)
         self._set_map_coordinate_formatter(
             [ax_map, ax_iteration], x_arr, rows, xlabel, y_labels,
-            secondary_y, secondary_ylabel, Z_arr,
+            secondary_y, secondary_ylabel, Z_arr, compact_respes=True,
         )
         ax_iteration.patch.set_visible(False)
         # twinx() otherwise becomes the topmost event-receiving Axes.  Keep the
@@ -2939,12 +3257,18 @@ class MapPlotMixin:
         except Exception:
             pass
 
-        if norm_interval is not None and energy_axis == source_axis:
-            # The normalization interval is defined on the measured source X
-            # coordinate.  After BE<->KE conversion that same source interval
-            # becomes photon-energy dependent, so do not draw it as an incorrect
-            # vertical band.  The normalized intensities are already present in Z.
-            self._draw_map_normalization_band(ax_map, norm_interval, norm_mode, norm_callback)
+        if norm_interval is not None:
+            if norm_mode in {"at_be", "at_ke", "at_hv"}:
+                self._draw_respes_normalization_region(
+                    ax_map, norm_interval, norm_mode, norm_callback,
+                    photon_energy=secondary_y, rows=rows, energy_axis=energy_axis,
+                    source_axis=source_axis, source_x=source_x, work_function=work_function,
+                    region_label="Reference" if subtracted else "Norm",
+                )
+            elif energy_axis == source_axis:
+                # Spectrum-area normalization is still defined on the measured
+                # source X interval in 0.12.4 build 2.
+                self._draw_map_normalization_band(ax_map, norm_interval, norm_mode, norm_callback)
 
         xlo, xhi = float(np.nanmin(x_arr)), float(np.nanmax(x_arr))
         if energy_axis == "be" and flip_binding_energy:
@@ -2952,6 +3276,10 @@ class MapPlotMixin:
         else:
             ax_map.set_xlim(xlo, xhi)
 
+        if cut_type == "none":
+            self._respes_cut_state = None
+            self.canvas.draw_idle()
+            return []
         if position is None:
             if cut_type == "constant_be":
                 position = (float(np.nanmedian(source_x)) if source_axis == "be" else

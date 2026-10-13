@@ -224,19 +224,57 @@ class UiProcessedDataMixin(UiMapControlsMixin):
         map_controls_layout.addWidget(QLabel("Normalize:", self.processed_controls_map_placeholder))
         self.cb_map_normalization = QComboBox(self.processed_controls_map_placeholder)
         self.cb_map_normalization.addItem("None", "none")
-        self.cb_map_normalization.addItem("At BE", "at_be")
+        self.cb_map_normalization.addItem("at BE", "at_be")
         self.cb_map_normalization.addItem("Area", "area")
-        self.cb_map_normalization.setMinimumWidth(92)
-        self.cb_map_normalization.setMaximumWidth(112)
+        self.cb_map_normalization.setMinimumWidth(118)
+        self.cb_map_normalization.setMaximumWidth(150)
         self.cb_map_normalization.setToolTip(
             "Normalize each row of the 2D map independently. This affects the map, Lines/ROI traces, ResPES cuts, and stored comparison traces."
         )
         map_controls_layout.addWidget(self.cb_map_normalization)
 
+        # Shared with Simple, Lines, ROI and ResPES: independent of map view.
+        # Import uses the standard TXT tree loader; export uses the measured grid.
+        self.btn_map_exchange = QToolButton(self.processed_controls_map_placeholder)
+        self.btn_map_exchange.setText("Export / Import")
+        self.btn_map_exchange.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        from PyQt6.QtWidgets import QMenu
+        exchange_menu = QMenu(self.btn_map_exchange)
+        export_action = exchange_menu.addAction("Export processed map (ASCII matrix)…")
+        export_ibw_action = exchange_menu.addAction("Export processed map (Igor IBW)…")
+        import_action = exchange_menu.addAction("Import 2D map (PANDA ASCII matrix)…")
+        import_ibw_action = exchange_menu.addAction("Import Igor Binary Wave…")
+        # Short, format-specific guidance. Scienta/SES export is not supported.
+        exchange_menu.setToolTipsVisible(True)
+        export_action.setToolTip(
+            "Export a 2D matrix with energy axes for Igor, Origin or Python."
+        )
+        export_ibw_action.setToolTip("Export a 2D Igor wave with energy axes and processing note.")
+        import_action.setToolTip(
+            "Import a PANDA ASCII matrix with its axes and processed intensities."
+        )
+        import_ibw_action.setToolTip(
+            "Import an Igor Binary Wave."
+        )
+        self.btn_map_exchange.setToolTip(
+            "Import or export numerical 2D map data (not an image)."
+        )
+        export_action.triggered.connect(self._export_ascii_map)
+        export_ibw_action.triggered.connect(self._export_ibw_map)
+        import_action.triggered.connect(self._import_ascii_map)
+        import_ibw_action.triggered.connect(lambda _checked=False: self._load_file("IBW"))
+        self.btn_map_exchange.setMenu(exchange_menu)
+        map_controls_layout.addSpacing(6)
+        map_controls_layout.addWidget(self.btn_map_exchange)
+
         self._map_norm_mode = "none"
         self._map_norm_context_key = None
         self._map_norm_be = None
         self._map_norm_width_ev = None
+        self._map_norm_ke = None
+        self._map_norm_ke_width_ev = None
+        self._map_norm_hv = None
+        self._map_norm_hv_width_ev = None
         self._map_norm_area_low = None
         self._map_norm_area_high = None
         self._map_norm_show_region = True
@@ -259,12 +297,15 @@ class UiProcessedDataMixin(UiMapControlsMixin):
         map_controls_layout.addSpacing(8)
         map_controls_layout.addWidget(self.btn_respes_analysis)
 
-        self._respes_cut_type = "constant_be"
+        self._respes_cut_type = "none"
         self._respes_cut_position = None
         self._respes_cut_width = None
         self._respes_dataset_key = None
         self._respes_energy_axis = "be"
         self._respes_work_function = 4.5
+        self._respes_preedge_enabled = False
+        self._respes_preedge_center = None
+        self._respes_preedge_width = None
 
         # Lines/ROI traces are snapshotted into the generic comparison window.
         # Export is intentionally centralized there rather than duplicated here.

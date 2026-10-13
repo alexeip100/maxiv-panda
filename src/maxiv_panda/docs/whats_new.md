@@ -1,5 +1,15 @@
 # What’s new in PANDA
 
+## PANDA 0.12.4
+
+### Added
+- **More map normalization choices:** photon-energy scans support **at KE** and **at PhE**, with draggable normalization regions in Simple, Lines, ROI and ResPES views. Ordinary XPS maps retain **None**, **at BE** and **Area**.
+- **Reference subtraction:** subtract the mean spectrum from a selected photon-energy interval in ResPES analysis (with **Normalize: None**).
+- **2D map exchange:** export processed map data as ASCII matrices or Igor IBW files, and import the same formats using **Export / Import** beside **Normalize**.
+
+### Changed
+- **ResPES cuts now start at None**, leaving the map unobstructed until a cut is chosen.
+
 ## PANDA 0.12.3
 
 PANDA 0.12.3 improves the consistency of survey signal identification and makes curve handling in Raw and Processed Data more predictable.
