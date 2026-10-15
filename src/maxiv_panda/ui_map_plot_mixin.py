@@ -3169,7 +3169,7 @@ class MapPlotMixin:
         cut_type="constant_be", position=None, width=None, cut_callback=None,
         energy_axis="be", work_function=4.5,
         norm_interval=None, norm_mode=None, norm_callback=None,
-        subtracted=False,
+        subtracted=False, difference_cmap="RdBu_r", difference_contrast=100,
     ):
         """Render Simple ResPES map plus a dedicated intensity-vs-photon-energy cut trace."""
         try:
@@ -3229,11 +3229,15 @@ class MapPlotMixin:
             finite = Z_arr[np.isfinite(Z_arr)]
             if finite.size:
                 amplitude = max(float(np.max(np.abs(finite))), 1e-12)
-                image_kw = {"vmin": -amplitude, "vmax": amplitude}
-            cmap = "RdBu_r"
+                limit = amplitude * 100.0 / max(100, int(difference_contrast))
+                image_kw = {"vmin": -limit, "vmax": limit}
+            cmap = str(difference_cmap or "RdBu_r")
         map_image = ax_map.imshow(Z_arr, aspect="auto", origin="lower",
                       extent=[float(x_arr[0]), float(x_arr[-1]), 0.0, float(rows)],
                       cmap=cmap, **image_kw)
+        if subtracted:
+            map_image._panda_subtraction_map = True
+            map_image._panda_difference_amplitude = max(float(np.max(np.abs(Z_arr[np.isfinite(Z_arr)]))), 1e-12) if np.any(np.isfinite(Z_arr)) else 1e-12
         self._disable_map_artist_cursor_data(map_image)
         ax_map.set_title(title)
         # Unlike generic Lines/ROI, the lower ResPES panel uses photon energy

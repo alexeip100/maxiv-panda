@@ -8,7 +8,7 @@ normalization/ROI/export workflow is isolated here from unrelated 1D controls.
 
 from PyQt6.QtCore import Qt, QLocale
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QDoubleSpinBox, QFormLayout, QGridLayout, QLabel,
+    QCheckBox, QDialog, QDoubleSpinBox, QFormLayout, QGridLayout, QLabel, QSlider,
     QPushButton, QHBoxLayout, QVBoxLayout, QWidget, QGroupBox,
 )
 from maxiv_panda.silent_message_box import SilentMessageBox as QMessageBox
@@ -1347,6 +1347,20 @@ class UiMapControlsMixin:
         pre_form.addWidget(self.lbl_respes_reference_width, 1, 0)
         pre_form.addWidget(self.sb_respes_preedge_width, 1, 1)
         pre_layout.addLayout(pre_form)
+        # Contrast only affects the displayed difference-map color limits.
+        contrast_row = QHBoxLayout()
+        contrast_row.setSpacing(8)
+        contrast_row.addWidget(QLabel("Contrast", pre_group))
+        self.slider_respes_contrast = QSlider(Qt.Orientation.Horizontal, pre_group)
+        self.slider_respes_contrast.setRange(100, 500)
+        self.slider_respes_contrast.setSingleStep(25)
+        self.slider_respes_contrast.setPageStep(25)
+        self.slider_respes_contrast.setValue(int(getattr(self, "_respes_difference_contrast", 100)))
+        self.slider_respes_contrast.setToolTip("100% shows the full difference range; higher values enhance weaker features by saturating extremes.")
+        contrast_row.addWidget(self.slider_respes_contrast, 1)
+        self.lbl_respes_contrast = QLabel("100%", pre_group)
+        contrast_row.addWidget(self.lbl_respes_contrast)
+        pre_layout.addLayout(contrast_row)
         self.chk_respes_preedge.setToolTip("Subtract the reference spectrum averaged over the selected photon-energy interval. Drag the horizontal band to move it, or either boundary to resize it. Requires Normalize: None.")
         layout.addWidget(pre_group)
 
@@ -1422,6 +1436,7 @@ class UiMapControlsMixin:
         self.chk_respes_preedge.toggled.connect(self._on_respes_preedge_toggled)
         self.sb_respes_preedge_center.valueChanged.connect(self._on_respes_preedge_numeric_changed)
         self.sb_respes_preedge_width.valueChanged.connect(self._on_respes_preedge_numeric_changed)
+        self.slider_respes_contrast.valueChanged.connect(self._on_respes_contrast_changed)
         # ResPES cut controls are exploratory controls: update the overlay/trace
         # immediately while typing or stepping rather than waiting for Enter.
         self.sb_respes_position.valueChanged.connect(self._on_respes_numeric_changed)
@@ -1557,6 +1572,15 @@ class UiMapControlsMixin:
             for row in (0, 1):
                 form.setRowVisible(row, active_cut)
         pre_enabled = bool(getattr(self, "_respes_preedge_enabled", False))
+        slider = getattr(self, "slider_respes_contrast", None)
+        if slider is not None:
+            slider.blockSignals(True)
+            slider.setValue(max(100, min(500, int(getattr(self, "_respes_difference_contrast", 100)))))
+            slider.blockSignals(False)
+            slider.setEnabled(pre_enabled)
+        contrast_label = getattr(self, "lbl_respes_contrast", None)
+        if contrast_label is not None:
+            contrast_label.setText(f"{int(getattr(self, '_respes_difference_contrast', 100))}%")
         chk = getattr(self, "chk_respes_preedge", None)
         if chk is not None:
             chk.blockSignals(True); chk.setChecked(pre_enabled); chk.blockSignals(False)
@@ -1651,7 +1675,46 @@ class UiMapControlsMixin:
         if enabled and (self._respes_preedge_center is None or self._respes_preedge_width is None):
             self._seed_respes_preedge_interval()
         self._sync_respes_controls()
-        self._update_plot_from_selected()
+        # On macOS, defer the complete Matplotlib figure rebuild until Qt has
+        # returned from the checkbox signal. In particular, a previously used
+        # modal colormap chooser may have left a queued canvas draw; rebuilding
+        # synchronously here can nest QtAgg paint operations.
+        import sys
+        if sys.platform == "darwin":
+            self._schedule_update_plot_from_selected()
+        else:
+            self._update_plot_from_selected()
+
+    def _on_respes_contrast_changed(self, value: int) -> None:
+        self._respes_difference_contrast = int(value)
+        label = getattr(self, "lbl_respes_contrast", None)
+        if label is not None:
+            label.setText(f"{value}%")
+        self._refresh_subtraction_color_display()
+
+    def _refresh_subtraction_color_display(self) -> None:
+        """Change existing image color only; never recalculate subtraction."""
+        if not getattr(self, "_respes_preedge_enabled", False):
+            return
+        plot = getattr(self, "plot_area", None)
+        if plot is None:
+            return
+        try:
+            cmap = str(getattr(self, "_respes_difference_cmap", "RdBu_r"))
+            contrast = max(100, int(getattr(self, "_respes_difference_contrast", 100)))
+            for ax in plot.fig.axes:
+                for artist in ax.images:
+                    if not getattr(artist, "_panda_subtraction_map", False):
+                        continue
+                    amplitude = getattr(artist, "_panda_difference_amplitude", None)
+                    if amplitude is None:
+                        continue
+                    limit = float(amplitude) * 100.0 / contrast
+                    artist.set_cmap(cmap)
+                    artist.set_clim(-limit, limit)
+            plot.canvas.draw_idle()
+        except Exception:
+            pass
 
     def _seed_respes_preedge_interval(self):
         ctx = self._respes_map_context()

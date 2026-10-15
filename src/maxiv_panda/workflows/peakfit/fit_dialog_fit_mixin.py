@@ -274,6 +274,23 @@ class FitDialogFitMixin:
                 self._set_fit_progress("Fit failed")
                 self._show_warning("Fit failed", detail or "Fit failed.")
                 return
+            # Re-evaluate the exact final parameter vector before committing.
+            # A discrepancy would indicate the optimizer and display are not
+            # using the same mathematical model, and should not be hidden.
+            final_metrics = self._compute_fit_quality_metrics(result, fit_data, bg_type)
+            final_rss = float(final_metrics["rss"])
+            optimizer_rss = float(getattr(result, "chisqr", float("nan")))
+            if not (np.isfinite(final_rss) and np.isfinite(optimizer_rss)
+                    and np.isclose(final_rss, optimizer_rss, rtol=1e-6, atol=1e-6)):
+                self._clear_fit_results_tables()
+                self._update_fit_quality_summary("Failed")
+                self._set_fit_progress("Fit model consistency check failed")
+                self._show_warning(
+                    "Fit model mismatch",
+                    "The converged parameter values do not reproduce the optimizer's RSS. "
+                    "The result was not applied; please report this fitting problem.",
+                )
+                return
             self._apply_fit_result_to_widgets(result, bg_type)
             self._populate_fit_results_tables(result, bg_type, fit_data)
             self._last_fit_result = result
@@ -288,7 +305,17 @@ class FitDialogFitMixin:
                 self._update_fit_quality_summary("Converged with warnings", result, fit_data, bg_type)
             else:
                 self._update_fit_quality_summary("Converged", result, fit_data, bg_type)
-            self._on_calculate_spectrum()
+            # The optimizer and live previews use full-precision lmfit values,
+            # including evaluated parameter expressions. The GUI spinboxes are
+            # rounded for display; reading them back here can change a tightly
+            # constrained fit and produce residuals inconsistent with its RSS.
+            # Use the identical model/rendering path as the live optimizer for
+            # the committed result. Subsequent manual edits still use the GUI.
+            final_values = result.params.valuesdict()
+            self._draw_intermediate_fit(
+                fit_data["xu"], final_values, bg_type, fit_data,
+                int(getattr(result, "nfev", 0) or 0),
+            )
             fit_plotting.restore_axes_view(
                 self.ax, self.ax_res, getattr(self, "_fit_view_state", None)
             )

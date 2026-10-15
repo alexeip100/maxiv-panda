@@ -66,7 +66,7 @@ from .ui_source_reload_mixin import UiSourceReloadMixin
 from .ui_raw_data_mixin import UiRawDataMixin
 from .ui_processed_data_mixin import UiProcessedDataMixin
 from .ui_map_plot_mixin import MapPlotMixin
-from .colormap_dialog import choose_colormap
+from .colormap_dialog import choose_colormap, open_colormap
 from .signal_identification.cross_section_reference import CrossSectionReferencePanel
 from .signal_identification.binding_energy_reference import BindingEnergyReferencePanel
 from .workflows.plotting import PlottedDataPanel
@@ -535,6 +535,8 @@ class PlotArea(MapPlotMixin, QWidget):
         respes_energy_axis: str = "be",
         respes_work_function: float = 4.5,
         respes_subtracted: bool = False,
+        respes_difference_cmap: str = "RdBu_r",
+        respes_difference_contrast: int = 100,
     ) -> list[Any]:
         """Plot multiple payloads at once.
 
@@ -607,6 +609,8 @@ class PlotArea(MapPlotMixin, QWidget):
                     norm_interval=map_norm_interval if map_norm_show_region else None,
                     norm_mode=map_norm_mode, norm_callback=map_norm_callback,
                     subtracted=respes_subtracted,
+                    difference_cmap=respes_difference_cmap,
+                    difference_contrast=respes_difference_contrast,
                 )
             if map_roi_enabled:
                 return self._plot_single_map_with_roi(
@@ -2034,11 +2038,11 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
         """Choose a colormap using visual gradient previews."""
         key = (file_name, region_name)
         current = self._region_cmap.get(key, 'terrain')
-        choice = choose_colormap(self, current)
-        if not choice:
-            return
-        self._region_cmap[key] = str(choice)
-        self._update_plot_from_selected()
+        def _apply(choice: str) -> None:
+            self._region_cmap[key] = str(choice)
+            self._update_plot_from_selected()
+
+        open_colormap(self, current, _apply)
 
     def _on_region_map_toggled(self, region_item: QTreeWidgetItem, checked: bool) -> None:
         """Handle the map toggle only when a valid 2D map can actually be built.
@@ -2325,6 +2329,8 @@ class MainWindow(UiProcessedDataMixin, UiRawDataMixin, UiSourceReloadMixin, UiAc
             respes_energy_axis=getattr(self, "_respes_energy_axis", "be"),
             respes_work_function=float(getattr(self, "_respes_work_function", 4.5)),
             respes_subtracted=bool(processed_map and getattr(self, "_respes_preedge_enabled", False)),
+            respes_difference_cmap=str(getattr(self, "_respes_difference_cmap", "RdBu_r")),
+            respes_difference_contrast=int(getattr(self, "_respes_difference_contrast", 100)),
         )
         self._apply_curve_color_icons(items_in_order, used_colors)
 

@@ -204,17 +204,17 @@ The result table contains:
 ### Reliability calculation
 For each accepted assignment, six factors are calculated on a 0-1 scale and combined as:
 
-`Reliability = round[100 × (0.25 C + 0.25 P + 0.20 S + 0.15 U + 0.10 A + 0.05 Q)]`
+$\mathrm{Reliability}=\operatorname{round}\!\left[100(0.25C+0.25P+0.20S+0.15U+0.10A+0.05Q)\right]$
 
 where:
-- **C - line-pattern consistency:** for PE lines supported by at least two candidate structures of the same element, the program first calculates a robust common shift, `Δcommon`, as the prominence-weighted median of `Peak − Reference` for those structures. For the current line, the residual mismatch is `r = |ΔE − Δcommon|`, and `C = clip[1 − r / tolerance, 0, 1]`. A coherent shift shared by several lines therefore does not reduce this factor. With only one PE line, C measures how closely that line matches its absolute reference position. For an Auger family, C reflects how many distinct broad measured subregions support the family (full value at three or more);
+- **C - line-pattern consistency:** for PE lines supported by at least two candidate structures of the same element, the program first calculates a robust common shift, $\Delta_{\mathrm{common}}$, as the prominence-weighted median of `Peak − Reference` for those structures. For the current line, the residual mismatch is $r=|\Delta E-\Delta_{\mathrm{common}}|$, and $C=\operatorname{clip}(1-r/\mathrm{tolerance},0,1)$. A coherent shift shared by several lines therefore does not reduce this factor. With only one PE line, C measures how closely that line matches its absolute reference position. For an Auger family, C reflects how many distinct broad measured subregions support the family (full value at three or more);
 - **P - measured peak evidence:** mainly compares the peak prominence with other detected features. A clear, close and unique PE match receives a minimum evidence value, so a C 1s peak is not rated poorly only because the metal substrate peaks are much stronger;
 - **S - element support:** normally increases when several structures support the same element. For B, C, N, O, F and Ne, a selected and well-matched 1s line is treated as a valid standalone core-level anchor because no companion core line is expected outside the valence region;
 - **U - assignment uniqueness:** 1 when no competing assignment exists. Otherwise it is `clip[(score margin) / 1.5, 0, 1]`, where the score margin is the difference between the internal ranking scores of the nearest competitor and the accepted candidate;
-- **A - absolute-shift plausibility:** this is deliberately a weak factor because chemical state, charging, or calibration can shift all PE lines together. For the magnitude `s = |Δcommon|`, A is 1.00 through 2 eV, then decreases linearly to 0.70 at 5 eV, 0.30 at 10 eV, and 0 at 15 eV. With one isolated PE line, its own ΔE is used only for this weak plausibility factor. For Auger families, A is neutral at 0.75 because Auger chemical shifts need not track PE shifts one-to-one;
+- **A - absolute-shift plausibility:** this is deliberately a weak factor because chemical state, charging, or calibration can shift all PE lines together. For the magnitude $s=|\Delta_{\mathrm{common}}|$, A is 1.00 through 2 eV, then decreases linearly to 0.70 at 5 eV, 0.30 at 10 eV, and 0 at 15 eV. With one isolated PE line, its own ΔE is used only for this weak plausibility factor. For Auger families, A is neutral at 0.75 because Auger chemical shifts need not track PE shifts one-to-one;
 - **Q - reference quality:** 1.00 for an elemental handbook reference or a high-coverage Auger family, 0.90 for a compound handbook reference or medium-coverage Auger family, 0.80 for an X-Ray Data Booklet reference or low-coverage Auger family, and 0.75 when the reference category is unspecified.
 
-For Auger-family rows, the dedicated family-level weighting is `100 × (0.35 C + 0.30 P + 0.20 S + 0.15 Q)`, where C is the number of distinct measured broad subregions (clipped at three), P is the broad-residual significance, S is the number of supporting PE assignments for the element (clipped at three), and Q reflects handbook coverage. Auger reliability therefore measures family-level experimental support; it does not compare an observed solid or compound spectrum with a calculated atomic line shape.
+For Auger-family rows, the dedicated family-level weighting is $100(0.35C+0.30P+0.20S+0.15Q)$, where C is the number of distinct measured broad subregions (clipped at three), P is the broad-residual significance, S is the number of supporting PE assignments for the element (clipped at three), and Q reflects handbook coverage. Auger reliability therefore measures family-level experimental support; it does not compare an observed solid or compound spectrum with a calculated atomic line shape.
 
 The common shift is a robust pattern descriptor, not a fitted oxidation-state correction. A 3-4 eV common displacement can therefore coexist with high reliability when several lines preserve their expected relative spacing. Conversely, mutually inconsistent shifts lower the line-pattern factor even when every individual line lies within the broad matching window.
 
@@ -298,9 +298,9 @@ In Lines and ROI, **Plot H-trace** and **Plot V-trace** snapshot the correspondi
 #### ResPES analysis
 For maps whose physical second axis is **Photon Energy**, select **View: Simple** and activate **ResPES analysis** to access BE/KE map display, reference subtraction and resonant cut tools. The general normalization options and map **Export / Import** remain available in Simple, Lines and ROI as well.
 
-**Map energy axis:** choose binding or kinetic energy for the horizontal display. The conversion `KE = hν - BE - Φ` uses **Analyzer WF** (default 4.5 eV). Changing display axes does not modify the measured data; blank parts of a transformed map are not extrapolated.
+**Map energy axis:** choose binding or kinetic energy for the horizontal display. The conversion $E_{\mathrm{KE}}=h\nu-E_{\mathrm{BE}}-\Phi$ uses **Analyzer WF** (default 4.5 eV). Changing display axes does not modify the measured data; blank parts of a transformed map are not extrapolated.
 
-**Reference subtraction:** check **Subtract reference PE spectrum**, then select a photon-energy centre and width (or move/resize the horizontal **Reference** band on the map). PANDA subtracts the mean reference spectrum, evaluated on the measured electron-energy grid, from every map row. The resulting difference map may contain negative intensities and uses a zero-centred diverging colour scale. Reference subtraction is available only with **Normalize: None**; choose a normalization mode to turn subtraction off. The reference interval can lie anywhere in the measured photon-energy scan, not necessarily before an edge.
+**Reference subtraction:** check **Subtract reference PE spectrum**, then select a photon-energy centre and width (or move/resize the horizontal **Reference** band on the map). PANDA subtracts the mean reference spectrum, evaluated on the measured electron-energy grid, from every map row. The resulting difference map may contain negative intensities. It initially uses the **RdBu_r** palette, with zero in the middle of the colour scale. Right-click the map to choose another palette, or select **RdBu_r** again to restore the default; PANDA remembers separate palettes for normal and subtracted maps. Use the **Contrast** slider below the reference controls to reveal weaker changes: **100%** (default) shows the full positive/negative difference range, while moving towards **500%** increases contrast by saturating stronger differences. The colour limits stay symmetric about zero, and the underlying intensities are not changed. Reference subtraction is available only with **Normalize: None**; choose a normalization mode to turn subtraction off. The reference interval can lie anywhere in the measured photon-energy scan, not necessarily before an edge.
 
 **ResPES cuts:** the default is **None** (no cut overlay or lower trace). Choose **Constant BE**, **Constant KE** or **Constant PhE** to display a cut; drag the band to move it or an edge to change its width. BE/KE cuts show intensity against photon energy, while a constant-PhE cut shows a spectrum on the displayed electron-energy axis. Press **Plot trace** to keep a snapshot in Trace comparison. Moving cuts or changing processing later does not alter existing snapshots. Switching to Lines or ROI temporarily hides the ResPES controls without discarding the saved state.
 
@@ -407,13 +407,13 @@ The compact conditions box is above the plot on the right side of the draggable 
 
 The angular factor is
 
-`F(β,θ) = 1 + β/2 × (3 cos²θ − 1)`
+$$F(\beta,\theta)=1+\frac{\beta}{2}\left(3\cos^2\theta-1\right)$$
 
 and the displayed geometry-weighted value is
 
-`σgeometry = σatomic × F(β,θ)`
+$$\sigma_{\mathrm{geometry}}=\sigma_{\mathrm{atomic}}\,F(\beta,\theta)$$
 
-The common `1/(4π)` differential-cross-section factor is intentionally omitted. Consequently, `σgeometry` remains in **Mb** and can be compared directly with `σatomic`. At the magic angle, approximately 54.7°, the β-dependent term vanishes and the angular factor equals 1.
+The common $\frac{1}{4\pi}$ differential-cross-section factor is intentionally omitted. Consequently, $\sigma_{\mathrm{geometry}}$ remains in **Mb** and can be compared directly with $\sigma_{\mathrm{atomic}}$. At the magic angle, approximately 54.7°, the β-dependent term vanishes and the angular factor equals 1.
 
 The angular factor describes only the dipole emission geometry. It does **not** include analyzer transmission, kinetic-energy-dependent attenuation, sample depth distribution, morphology, elastic diffraction, chemical-state effects, peak broadening, or spectral overlap. Therefore, the values should guide relative intensity expectations rather than predict measured peak areas exactly.
 
@@ -440,8 +440,8 @@ The compact table below the plot reports:
 - **Core level** - selected element and tabulated level;
 - **σ atomic (Mb)** - Yeh-Lindau total atomic cross section at the selected photon energy;
 - **β** - interpolated angular-asymmetry parameter;
-- **Angular factor** - `F(β,θ)` for the selected geometry;
-- **σ geometry (Mb)** - `σatomic × F(β,θ)`.
+- **Angular factor** - $F(\beta,\theta)$ for the selected geometry;
+- **σ geometry (Mb)** - $\sigma_{\mathrm{atomic}}F(\beta,\theta)$.
 
 Hover over a table heading to see its definition. Changing photon energy or angle refreshes all currently selected curves and numerical values immediately.
 
@@ -462,13 +462,13 @@ The **Binding energies** tab is a pure reference tool and does not read or modif
 - **Photon energy** - used only for optional Auger lookup and therefore enabled only when **Include Auger signals** is checked. It converts Auger KE regions to their apparent BE positions.
 - **Find** returns core-level PE candidates by default; when **Include Auger signals** is checked it adds Auger candidates that can occur in the same BE interval.
 
-For PE candidates, the tabulated core-level BE is compared directly with the requested region. For Auger candidates, the tabulated KE interval is converted to its position on the binding-energy scale using `BE = hν − KE`, consistent with the convention used elsewhere in the program.
+For PE candidates, the tabulated core-level BE is compared directly with the requested region. For Auger candidates, the tabulated KE interval is converted to its position on the binding-energy scale using $E_{\mathrm{BE}}=h\nu-E_{\mathrm{KE}}$, consistent with the convention used elsewhere in the program.
 
 The result table reports **Element**, **Signal**, **Level / family**, **Reference energy**, **Position on BE scale**, **Environment / state**, **Phase**, and **Source**. For PE rows, **Reference energy** is a BE; for Auger rows it is a KE interval. Experimental XPS International Handbook Auger positions are grouped into broad family ranges, while supplementary EADL entries retain their clustered atomic-relaxation intervals. These are reference regions rather than exact compound-specific line shapes, and all matches should be treated as candidates.
 
 
 # Spectrum fitting
-The **Fit core-level PE spectra** window is for detailed fitting of one spectrum at a time.
+In **Processed Data**, the **Fit selected** button in **Fitting** opens the single-spectrum fitting window for a single selected curve. For more than five selected curves, PANDA offers **Fit selected curves individually** or **Prepare sequence fit**. The single-spectrum fitting window is for detailed fitting of one spectrum at a time.
 
 ## General purpose
 Build and test a peak model for one selected spectrum before applying it to a sequence. When a fresh spectrum is opened without a saved/anchor fit state, PANDA makes conservative automatic initial peak suggestions from resolved maxima (up to five). These are starting guesses only: shoulders are deliberately not over-interpreted, and the user remains responsible for the physical model.
@@ -484,7 +484,7 @@ A **Legend** checkbox beside the plot toolbar is checked by default and shows/hi
 
 The lower plot shows the residual:
 
-`residual = data - total_fit`
+$r(E)=I_{\mathrm{data}}(E)-I_{\mathrm{fit}}(E)$
 
 ## Peak parameters
 Typical peak parameters are:

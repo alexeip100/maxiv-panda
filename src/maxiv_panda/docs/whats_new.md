@@ -1,5 +1,20 @@
 # What’s new in PANDA
 
+## PANDA 0.12.5
+
+### Added
+- **Contrast for reference-subtracted ResPES maps:** use the **Contrast** slider to bring out weaker positive and negative differences without changing the numerical data.
+- **More map colormaps:** choose a palette for reference-subtracted maps independently of normal maps, including **RdBu_r** (the subtraction default) and additional diverging/reversed palettes. Right-click the map to change or restore its palette.
+
+### Changed
+- **Help presentation:** improved readability and mathematical notation, with equations rendered locally even when offline.
+- **Peak fitting limits:** increased the maximum **LFWHM** to **1.5 eV** and **GFWHM** to **3.0 eV**.
+
+### Fixed
+- **macOS colormap dialog:** opening and closing the selector no longer causes the application to freeze before reference subtraction.
+- **Final fit display:** the fitted curve and residual now retain the optimizer's result when fitting completes.
+- **Tied fitting parameters:** dependent peak values remain consistent when constraints are changed, without clipping them to outdated limits.
+
 ## PANDA 0.12.4
 
 ### Added

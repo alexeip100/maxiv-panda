@@ -127,6 +127,19 @@ def apply_fit_result_to_widgets(result_values: Mapping[str, float], peak_widgets
         for pkey, widget_key in (("E", "E"), ("H", "H"), ("L", "L"), ("G", "G"), ("A", "A")):
             name = f"p{i}_{pkey}"
             if name in result_values:
+                # Derived/tied values must not be clipped by inactive local
+                # bounds; those bounds apply only to independent fit variables.
+                mode = w.get(f"{widget_key}_mode")
+                if mode is not None and str(mode.currentText()).startswith("Tied to "):
+                    sb = w[widget_key]
+                    lower = w[f"{widget_key}_min"]
+                    upper = w[f"{widget_key}_max"]
+                    hard_min = lower.property("hard_min")
+                    hard_max = upper.property("hard_max")
+                    sb.setRange(
+                        float(hard_min) if hard_min is not None else float(lower.minimum()),
+                        float(hard_max) if hard_max is not None else float(upper.maximum()),
+                    )
                 w[widget_key].setValue(float(result_values[name]))
     if "b0" in result_values:
         bg_widgets["b0"].setValue(float(result_values["b0"]))

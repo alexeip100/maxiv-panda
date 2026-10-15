@@ -11,12 +11,12 @@ A basic workflow is:
 4. Check the spectrum or spectra you want to inspect. They appear in the selected-curve tree on the right and in the main plot.
 5. Use **Raw Data** first to verify that the file was read correctly.
 6. Use **Processed Data** when you need simple normalization or energy-scale handling.
-7. For one detailed fit, select one curve and open **Fit core-level PE spectra**.
-8. For a sequence of similar spectra, select the sequence and open **Batch fitting of core-level PE spectra**.
+7. For one detailed fit, select one curve, go to **Processed Data**, and click **Fit selected** in **Fitting**.
+8. For a sequence of more than five spectra, select the spectra in **Processed Data**, click **Fit selected**, then choose **Prepare sequence fit** in the dialog.
 
-Use **Single curve fit** to build the model, **Batch fitting** to apply it to a sequence, and **Analyze fit results** to inspect parameter trends.
+Use the single-spectrum fitting window to build the model and the batch-fitting window to apply it to a sequence, and **Analyze fit results** to inspect parameter trends.
 
-**Controls used (What is what?):** *Drag-and-drop*, *File → Load data...*, *Loaded files tree*, *Selected-curve tree*, *Raw Data*, *Processed Data*, *Fit core-level PE spectra*, *Batch fitting of core-level PE spectra*
+**Controls used (What is what?):** *Drag-and-drop*, *File → Load data...*, *Loaded files tree*, *Selected-curve tree*, *Raw Data*, *Processed Data*, *Fit selected*, *Prepare sequence fit*, *single-spectrum fitting window*, *batch-fitting window*
 
 ### Abbreviations used below
 - **PES**: Photoelectron Spectroscopy.
@@ -136,7 +136,7 @@ For repeated spectra, such as annealing, dosing, irradiation, or time series:
 
 Parent selection updates large sequences in one plot refresh.
 
-**Controls used (What is what?):** *Region*, *Iteration*, *Selected-curve tree*, *Batch fitting of core-level PE spectra*
+**Controls used (What is what?):** *Region*, *Iteration*, *Selected-curve tree*, *Fit selected*, *Prepare sequence fit*
 
 
 # Inspect spectra and use references
@@ -171,7 +171,7 @@ Use the **Cross sections** tab as a reference when judging which core levels sho
 5. Check the desired core levels in the compact wrapping list; the curves and values appear immediately and update with every checkbox change.
 6. Read the curves and the exact values table below the plot. The dashed vertical line marks the chosen photon energy, and the small curve-coloured intersection circles move with it as the photon energy changes.
 
-The database contains Yeh-Lindau atomic subshell cross sections σ and angular-asymmetry parameters β. The program multiplies σ by the dipole angular factor `1 + β/2 × (3 cos²θ − 1)` for the selected E-vector-analyzer angle. The common `1/(4π)` factor is omitted, so both atomic and geometry-weighted values remain in Mb. These are reference values for broad intensity expectations, not predictions of measured peak areas: analyzer transmission, attenuation, sample depth, morphology, diffraction, chemistry, broadening, and overlaps can all alter experimental ratios. Hover over the table headings for concise definitions.
+The database contains Yeh-Lindau atomic subshell cross sections σ and angular-asymmetry parameters β. The program multiplies σ by the dipole angular factor $1+\frac{\beta}{2}(3\cos^2\theta-1)$ for the selected E-vector-analyzer angle. The common $\frac{1}{4\pi}$ factor is omitted, so both atomic and geometry-weighted values remain in Mb. These are reference values for broad intensity expectations, not predictions of measured peak areas: analyzer transmission, attenuation, sample depth, morphology, diffraction, chemistry, broadening, and overlaps can all alter experimental ratios. Hover over the table headings for concise definitions.
 
 **Controls used (What is what?):** *Cross sections tab*, *Photon energy*, *E-vector-analyzer angle*, *Elements*, *Available core levels*
 
@@ -274,8 +274,8 @@ Use the Processed Data **Map** view when several compatible spectra form a seque
 ## Compare ResPES excitation profiles
 When the second physical map axis is **Photon Energy**, use **View: Simple → ResPES analysis** for BE/KE representation, reference-spectrum subtraction and resonant cuts.
 
-1. In **Map energy axis**, choose BE or KE. The conversion uses `KE = hν - BE - Φ`, where **Analyzer WF** sets Φ (default 4.5 eV). This changes the display, not the stored data.
-2. For a difference map, first set **Normalize: None**, then select **Subtract reference PE spectrum** under **Reference subtraction**. Choose a photon-energy reference interval with the two controls or drag its horizontal band. The mean reference spectrum is subtracted from all rows; the colour scale shows positive and negative differences around zero.
+1. In **Map energy axis**, choose BE or KE. The conversion uses $E_{\mathrm{KE}}=h\nu-E_{\mathrm{BE}}-\Phi$, where **Analyzer WF** sets Φ (default 4.5 eV). This changes the display, not the stored data.
+2. For a difference map, first set **Normalize: None**, then select **Subtract reference PE spectrum** under **Reference subtraction**. Choose a photon-energy reference interval with the two controls or drag its horizontal band. The mean reference spectrum is subtracted from all rows. The map starts with the **RdBu_r** palette; right-click the map to choose another palette or restore **RdBu_r**. To make weak positive and negative changes easier to see, increase **Contrast** from **100%** (full range) towards **500%** (stronger contrast). This adjusts colours only, not the map values.
 3. **ResPES cuts** starts at **None**. Choose **Constant BE**, **Constant KE** or **Constant PhE** when you want to inspect a cut. Drag a band to move it or its edge to resize. The cut trace appears below the map.
 4. Use **Plot trace** to keep the current cut in **Trace comparison** for **Rename...**, comparing and **Export CSV**. Saved traces are snapshots and are not changed by subsequent adjustments.
 5. To save the processed **numerical 2D map** (not an image), choose **Export / Import** next to **Normalize**, then **Export processed map (ASCII matrix)** or **Export processed map (Igor IBW)**. The export preserves the measured axes and current processed intensities. Use the matching import command to load it as a new dataset; processing is not applied twice. ASCII matrix is a general 2D text format, not a Scienta acquisition TXT file. This menu also works in Simple, Lines and ROI.
@@ -322,12 +322,12 @@ Develop and validate a robust peak/background model on one spectrum before using
 
 
 ## Fit one core-level spectrum
-Use **Fit core-level PE spectra** when you want to build or refine a model for one spectrum.
+Use **Processed Data → Fitting → Fit selected** to build or refine a model for one selected spectrum.
 
 This is the best starting point before batch fitting.
 
 1. Select one spectrum in the selected-curve tree.
-2. Open **Fit core-level PE spectra**. For a fresh spectrum, the program proposes a conservative set of initial components from clearly resolved maxima; treat these only as starting guesses and add/remove/edit components as required by the physics.
+2. On **Processed Data**, click **Fit selected** in **Fitting** to open the single-spectrum fitting window. For a fresh spectrum, the program proposes a conservative set of initial components from clearly resolved maxima; treat these only as starting guesses and add/remove/edit components as required by the physics.
 3. Choose or create the background model.
 4. Add, remove, or adjust the required peak components.
 5. Set approximate starting values for peak position, height, width, and alpha.
@@ -345,7 +345,7 @@ A good fit should normally have:
 - no important parameter stuck at a bound unless intended;
 - residuals without clear peak-shaped structure.
 
-**Controls used (What is what?):** *Fit core-level PE spectra*, *Fit range*, *Edit*, *Select on plot*, *Start fit*, *Undo fit*, *Peak parameters*, *Background models*, *Residual plot*
+**Controls used (What is what?):** *Fit selected*, *Fit range*, *Edit*, *Select on plot*, *Start fit*, *Undo fit*, *Peak parameters*, *Background models*, *Residual plot*
 
 
 ## Choose starting peak parameters
@@ -504,14 +504,14 @@ Batch fitting works best when you first understand the single-spectrum model.
 A recommended beginner workflow is:
 
 1. Pick one representative spectrum.
-2. Fit it in **Fit core-level PE spectra**.
+2. In **Processed Data**, select that spectrum and click **Fit selected** to open the fitting window; fit and inspect the model there.
 3. Decide which peaks, background, constraints, and bounds make sense.
-4. Then open **Batch fitting of core-level PE spectra** for the full sequence.
+4. In **Processed Data**, select the sequence (more than five curves), click **Fit selected**, and choose **Prepare sequence fit**.
 5. Use anchor spectra to define how starting values should evolve through the sequence.
 
 Do not start batch fitting with a model you have never tested. If one spectrum cannot be fitted sensibly, a whole sequence will not be more reliable.
 
-**Controls used (What is what?):** *Single curve fit workflow*, *Batch fitting of core-level PE spectra*, *Anchor spectra*
+**Controls used (What is what?):** *Single curve fit workflow*, *Fit selected*, *Prepare sequence fit*, *Anchor spectra*
 
 
 ## Choose the peak-only or SO-doublet batch path
@@ -539,7 +539,7 @@ This distinction affects only how the parameter table is prepared. After validat
 Use the **Prepare sequence fit** tab to make sure the selected spectra form a meaningful sequence.
 
 1. Select the curves/iterations in the main window.
-2. Open **Batch fitting of core-level PE spectra**.
+2. In **Processed Data**, select more than five curves, click **Fit selected** in **Fitting**, and choose **Prepare sequence fit** in the **Select fitting mode** dialog.
 3. Inspect the selected spectra tree on the left.
 4. Confirm that the spectra are in the expected order.
 5. Choose the **Bin size**. Leave it at 1 for no binning; values above 1 average consecutive spectra.

@@ -2,8 +2,8 @@ cff-version: 1.2.0
 message: "If you use PANDA in your work, please cite this software."
 title: "PANDA: Photoemission Analysis, Normalization and Data Assessment"
 type: software
-version: 0.12.4
-date-released: 2026-10-13
+version: 0.12.5
+date-released: 2026-10-15
 authors:
   - family-names: "Preobrajenski"
     given-names: "Alexei"

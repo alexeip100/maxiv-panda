@@ -36,7 +36,7 @@ A dedicated **conda environment** is recommended. PANDA 0.12 targets **Python 3.
 Create the environment once. The command below installs the important Qt/scientific dependencies explicitly from **conda-forge**:
 
 ```bash
-conda create -n pes_processor -c conda-forge --strict-channel-priority python=3.14 pyqt6 matplotlib numpy scipy igor2 lmfit h5py pip
+conda create -n pes_processor -c conda-forge --strict-channel-priority python=3.14 pyqt6 pyqt6-webengine markdown matplotlib numpy scipy igor2 lmfit h5py pip
 ```
 
 Activate the environment:
@@ -52,19 +52,29 @@ Then choose **one** installation method.
 1. Open the PANDA repository on GitHub.
 2. Open **Releases** and choose the **Latest** release.
 3. Scroll to the **bottom of the release page** and expand **Assets** if necessary.
-4. Download the file ending in **`.whl`**.
+4. Download the file ending in **`.whl`**. The filename shown below is for version 0.12.5; use the wheel name of the version you downloaded.
 5. Open a terminal in the folder containing the downloaded wheel and install it:
 
 ```bash
-pip install --no-deps maxiv_panda-*.whl
+python -m pip install --upgrade maxiv_panda-0.12.5-py3-none-any.whl
 ```
+
+### Install or upgrade directly from GitHub
+
+To install the latest published PANDA release directly from GitHub, including any new dependencies, run:
+
+```bash
+python -m pip install --upgrade "maxiv-panda @ git+https://github.com/alexeip100/maxiv-panda.git@v0.12.5"
+```
+
+The GitHub release tag must exist before this command can be used. Both a fresh installation and an upgrade resolve PANDA's required **`PyQt6-WebEngine`** and **`markdown`** packages automatically. Do **not** use `--no-deps` when you want pip to install newly required dependencies.
 
 ### From the source folder
 
 Open a terminal in the `maxiv-panda` folder and run:
 
 ```bash
-pip install . --no-deps
+python -m pip install --upgrade .
 ```
 
 ### Development installation
@@ -72,10 +82,10 @@ pip install . --no-deps
 If you are modifying the source code, install it in editable mode instead:
 
 ```bash
-pip install -e . --no-deps
+python -m pip install --upgrade -e .
 ```
 
-> Use the conda-forge package **`pyqt6`**, not `pyqt` (which installs PyQt5). Keeping Qt and the scientific dependencies under conda and using `--no-deps` for PANDA avoids mixed pip/conda Qt installations.
+> Use conda-forge packages **`pyqt6`** and **`pyqt6-webengine`**, not `pyqt` (which installs PyQt5). PANDA declares WebEngine and Markdown as required dependencies, so an ordinary `pip install` (without `--no-deps`) installs missing Help dependencies automatically. The conda command above installs these first to avoid unnecessary pip/conda Qt mixing.
 
 ## Starting PANDA
 
@@ -105,7 +115,7 @@ python -m maxiv_panda
 4. Select spectra or an **Average** / **Iterations** group in the Loaded files tree.
 5. Use the Raw, Processed, Plotted, fitting, and reference tools as needed.
 
-The built-in **Help** menu contains detailed descriptions of controls, workflows, and release highlights.
+The built-in **Help** menu contains detailed descriptions of controls, workflows, and release highlights. Its document viewer uses locally bundled MathJax for offline mathematical typesetting; it requires PyQt6-WebEngine, installed by the recommended environment command or ordinary pip dependency resolution.
 
 ## Testing
 

@@ -63,6 +63,11 @@ def main() -> None:
     configure_console_logging()
     prepare_native_app_identity()
     _prepare_qt_environment()
+
+    # As in EXACT, WebEngine must be imported before QApplication is created.
+    # Importing it later from the Help browser raises an ImportError on Windows.
+    from PyQt6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
+
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
     install_silent_message_boxes(QtWidgets)
     configure_qt_application_identity(app)

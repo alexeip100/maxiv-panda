@@ -8,7 +8,7 @@ from PyQt6.QtGui import QColor, QBrush, QFont, QKeySequence, QTextDocument, QSho
 from PyQt6.QtWidgets import (
     QFileDialog,
     QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QSizePolicy, QSpinBox, QSplitter, QTreeWidget,
+    QSizePolicy, QSpinBox, QSplitter, QStackedWidget, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 from maxiv_panda.silent_message_box import SilentMessageBox as QMessageBox
@@ -17,7 +17,7 @@ from .version import __date__, __version__
 from .loaders import filter_for_kind, open_files_dialog, parse_file
 from .icon import application_icon
 from .utils.help_text import get_usage_html
-from .widgets.help_browser import HelpBrowser
+from .widgets.mathjax_help_browser import MathJaxHelpBrowser
 from .widgets.appearance_settings_dialog import SettingsDialog
 from .ui_style import (
     SETTINGS_APPLICATION, SETTINGS_ORGANIZATION,
@@ -365,6 +365,8 @@ class UiActionsMixin:
             "map_norm_area_high": getattr(self, "_map_norm_area_high", None),
             "map_norm_active_interval": list(getattr(self, "_map_norm_active_interval", None) or []),
             "map_norm_show_region": bool(getattr(self, "_map_norm_show_region", True)),
+            "respes_difference_cmap": str(getattr(self, "_respes_difference_cmap", "RdBu_r")),
+            "respes_difference_contrast": int(getattr(self, "_respes_difference_contrast", 100)),
             "respes_preedge_enabled": bool(getattr(self, "_respes_preedge_enabled", False)),
             "respes_preedge_center": getattr(self, "_respes_preedge_center", None),
             "respes_preedge_width": getattr(self, "_respes_preedge_width", None),
@@ -1108,6 +1110,8 @@ class UiActionsMixin:
             interval = view.get("map_norm_active_interval")
             self._map_norm_active_interval = tuple(interval) if isinstance(interval, (list, tuple)) and len(interval) == 2 else None
             self._map_norm_show_region = bool(view.get("map_norm_show_region", True))
+            self._respes_difference_cmap = str(view.get("respes_difference_cmap") or "RdBu_r")
+            self._respes_difference_contrast = max(100, min(500, int(view.get("respes_difference_contrast", 100))))
             self._respes_preedge_center = view.get("respes_preedge_center")
             self._respes_preedge_width = view.get("respes_preedge_width")
             self._respes_preedge_enabled = bool(view.get("respes_preedge_enabled", False)) and map_norm_mode == "none"
@@ -1436,11 +1440,6 @@ class UiActionsMixin:
             except Exception:
                 pass
 
-        try:
-            usage_html = get_usage_html(md_filename, 17)
-        except Exception:
-            usage_html = "<p><b>Help text could not be loaded.</b></p>"
-
         # Use a parentless top-level window rather than a dialog owned by the
         # main window.  On Windows, an owned dialog is kept above its owner and
         # normally lacks a standard taskbar/minimize relationship.  Help should
@@ -1599,47 +1598,21 @@ class UiActionsMixin:
 
         _set_toc_style(font_spin.value())
 
-        browser = HelpBrowser()
+        browser = MathJaxHelpBrowser(md_filename, base_px=17)
         browser.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        browser.setStyleSheet("font-size: 17px;")
-        # Keep Help search matches highly visible, independent of the application
-        # selection palette/theme. QTextBrowser.find() selects the current match.
-        try:
-            help_palette = browser.palette()
-            help_palette.setColor(help_palette.ColorRole.Highlight, QColor(255, 235, 59))
-            help_palette.setColor(help_palette.ColorRole.HighlightedText, QColor(0, 0, 0))
-            browser.setPalette(help_palette)
-        except Exception:
-            pass
         browser.setMinimumWidth(380)
-        browser.setHtml(usage_html)
 
         def _do_help_search(backward: bool = False):
-            text = (search_edit.text() or "").strip()
-            if not text:
+            term = (search_edit.text() or "").strip()
+            if not term:
+                browser.find_help("", backward=False)
                 return
-            flags = (
-                QTextDocument.FindFlag.FindBackward
-                if backward
-                else QTextDocument.FindFlag(0)
-            )
-            try:
-                found = browser.find(text, flags)
-            except Exception:
-                found = False
-            if not found:
-                try:
-                    cursor = browser.textCursor()
-                    cursor.movePosition(cursor.End if backward else cursor.Start)
-                    browser.setTextCursor(cursor)
-                    found = browser.find(text, flags)
-                except Exception:
-                    found = False
-            if not found:
-                try:
-                    QMessageBox.information(dlg, "Search", f'No matches for "{text}".')
-                except Exception:
-                    pass
+
+            def _result(found):
+                if not found:
+                    QMessageBox.information(dlg, "Search", f'No matches for "{term}".')
+
+            browser.find_help(term, backward, _result)
 
         try:
             next_btn.clicked.connect(lambda: _do_help_search(False))
@@ -1715,8 +1688,23 @@ class UiActionsMixin:
         except Exception:
             pass
 
+        # Keep the Help pane readable while Chromium/WebEngine initializes.
+        # The WebEngine view is not displayed until its document has loaded,
+        # avoiding the black rectangle seen on some Windows systems.
+        content_stack = QStackedWidget(splitter)
+        loading_pane = QWidget(content_stack)
+        loading_pane.setStyleSheet("background-color: #ffffff; color: #444444;")
+        loading_layout = QVBoxLayout(loading_pane)
+        loading_message = QLabel("Loading Help…", loading_pane)
+        loading_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        loading_layout.addWidget(loading_message)
+        content_stack.addWidget(loading_pane)
+        content_stack.addWidget(browser)
+        content_stack.setCurrentWidget(loading_pane)
+        browser.loadFinished.connect(lambda _ok: content_stack.setCurrentWidget(browser))
+
         splitter.addWidget(toc_panel)
-        splitter.addWidget(browser)
+        splitter.addWidget(content_stack)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setCollapsible(0, False)
@@ -1730,8 +1718,7 @@ class UiActionsMixin:
             except Exception:
                 px = 14
             try:
-                browser.setStyleSheet(f"font-size: {px}px;")
-                browser.setHtml(get_usage_html(md_filename, px))
+                browser.set_base_font(px)
             except Exception:
                 pass
             try:

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.12.5 - 2026-10-15
+
+### Added
+- Adjust the contrast of reference-subtracted ResPES maps without changing the measured or exported numerical intensities; choose a separate subtraction colormap, including additional diverging and reversed palettes.
+
+### Changed
+- Improve Help and What’s new readability and mathematical notation with locally bundled, offline equation rendering.
+- Increase the maximum LFWHM and GFWHM fitting parameters to 1.5 eV and 3.0 eV, respectively.
+
+### Fixed
+- Resolve the macOS freeze after opening and closing the map colormap selector.
+- Preserve the optimized fitted spectrum and residuals when final fit results are applied to the dialog.
+- Keep tied peak widths and other dependent parameters consistent when changing fitting constraints, without clipping them to obsolete GUI limits.
+
 ## 0.12.4 - 2026-10-13
 
 ### Added

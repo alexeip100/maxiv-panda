@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QSize, Qt, QTimer
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
@@ -18,9 +18,13 @@ from PyQt6.QtWidgets import (
 POPULAR_COLORMAPS = [
     'viridis', 'plasma', 'inferno', 'magma', 'cividis',
     'turbo', 'cubehelix', 'gray', 'Greys',
-    'hot', 'cool', 'coolwarm', 'Spectral',
+    'hot', 'cool',
+    # Diverging palettes suited to signed difference maps (including reversals).
+    'RdBu_r', 'RdBu', 'coolwarm', 'coolwarm_r',
+    'seismic', 'seismic_r', 'bwr', 'bwr_r',
+    'PiYG', 'PiYG_r', 'BrBG', 'BrBG_r', 'Spectral', 'Spectral_r',
     'terrain', 'gist_earth',
-    'YlOrRd', 'YlGnBu', 'PuBuGn', 'RdBu',
+    'YlOrRd', 'YlGnBu', 'PuBuGn',
 ]
 
 
@@ -108,3 +112,34 @@ def choose_colormap(parent: QWidget | None, current: str = 'terrain') -> str | N
     if dialog.exec() != QDialog.DialogCode.Accepted:
         return None
     return dialog.selected_colormap()
+
+
+def open_colormap(parent: QWidget, current: str, on_selected) -> None:
+    """Show a modal palette chooser without entering a nested Qt event loop.
+
+    Retain the dialog until its finished signal, including on Cancel/close.
+    """
+    dialogs = getattr(parent, "_open_colormap_dialogs", None)
+    if dialogs is None:
+        dialogs = []
+        parent._open_colormap_dialogs = dialogs
+    # Ignore repeated requests while a chooser is already displayed.
+    if dialogs:
+        dialogs[-1].raise_()
+        dialogs[-1].activateWindow()
+        return
+    dialog = ColormapDialog(current=current, parent=parent)
+    dialogs.append(dialog)
+
+    def _finished(result: int) -> None:
+        # Finish dismissing the native macOS dialog before refreshing Matplotlib.
+        selected = (dialog.selected_colormap()
+                    if result == int(QDialog.DialogCode.Accepted) else None)
+        if dialog in dialogs:
+            dialogs.remove(dialog)
+        dialog.deleteLater()
+        if selected is not None:
+            QTimer.singleShot(0, lambda name=selected: on_selected(name))
+
+    dialog.finished.connect(_finished)
+    dialog.open()

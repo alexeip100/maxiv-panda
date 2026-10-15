@@ -187,8 +187,10 @@ def _add_param_row(grid: QGridLayout, row: int, label: str, sb_val: QDoubleSpinB
     return lab
 
 
-def _wire_limits(sbmin: QDoubleSpinBox, sbval: QDoubleSpinBox, sbmax: QDoubleSpinBox) -> None:
-    def _apply():
+def _wire_limits(sbmin: QDoubleSpinBox, sbval: QDoubleSpinBox, sbmax: QDoubleSpinBox, mode: QComboBox | None = None) -> None:
+    was_tied = False
+
+    def _apply(*, detached: bool = False):
         vmin = float(sbmin.value())
         vmax = float(sbmax.value())
         hbmin = sbmin.property("hard_min")
@@ -201,20 +203,32 @@ def _wire_limits(sbmin: QDoubleSpinBox, sbval: QDoubleSpinBox, sbmax: QDoubleSpi
             vmax = hbmax
         if vmin > vmax:
             vmin, vmax = hbmin, hbmax
+        tied = mode is not None and str(mode.currentText()).startswith("Tied to ")
+        if detached:
+            # A derived value can exceed this peak's obsolete inactive bounds.
+            # Keep it unchanged when the user unties the parameter.
+            old = float(sbval.value())
+            vmin = min(vmin, old)
+            vmax = max(vmax, old)
         sbmin.blockSignals(True)
         sbmax.blockSignals(True)
         sbmin.setValue(vmin)
         sbmax.setValue(vmax)
         sbmin.blockSignals(False)
         sbmax.blockSignals(False)
-        sbval.setRange(vmin, vmax)
-        if sbval.value() < vmin:
-            sbval.setValue(vmin)
-        if sbval.value() > vmax:
-            sbval.setValue(vmax)
+        sbval.setRange(hbmin, hbmax) if tied else sbval.setRange(vmin, vmax)
+
+    def _on_mode_change(_text=""):
+        nonlocal was_tied
+        tied = mode is not None and str(mode.currentText()).startswith("Tied to ")
+        _apply(detached=was_tied and not tied)
+        was_tied = tied
+
     sbmin.valueChanged.connect(lambda _=0: _apply())
     sbmax.valueChanged.connect(lambda _=0: _apply())
-    _apply()
+    if mode is not None:
+        mode.currentTextChanged.connect(_on_mode_change)
+    _on_mode_change()
 
 
 def create_peak_group(peak_index: int, n_target: int, owner: QWidget, *,
@@ -295,8 +309,8 @@ def create_peak_group(peak_index: int, n_target: int, owner: QWidget, *,
 
     e_hard_min, e_hard_max = -1e9, 1e9
     h_hard_min, h_hard_max = 0.0, 1e12
-    l_hard_min, l_hard_max = 0.05, 1.0
-    g_hard_min, g_hard_max = 0.05, 2.0
+    l_hard_min, l_hard_max = 0.05, 1.5
+    g_hard_min, g_hard_max = 0.05, 3.0
     a_hard_min, a_hard_max = 0.0, 0.2
 
     sb_E_min = _mk_lim_sb(owner, 0.0, e_hard_min, e_hard_max, decimals=3)
@@ -335,11 +349,11 @@ def create_peak_group(peak_index: int, n_target: int, owner: QWidget, *,
         cb.setMinimumContentsLength(12)
         cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
 
-    _wire_limits(sb_E_min, sb_E, sb_E_max)
-    _wire_limits(sb_H_min, sb_H, sb_H_max)
-    _wire_limits(sb_L_min, sb_L, sb_L_max)
-    _wire_limits(sb_G_min, sb_G, sb_G_max)
-    _wire_limits(sb_A_min, sb_A, sb_A_max)
+    _wire_limits(sb_E_min, sb_E, sb_E_max, cb_E)
+    _wire_limits(sb_H_min, sb_H, sb_H_max, cb_H)
+    _wire_limits(sb_L_min, sb_L, sb_L_max, cb_L)
+    _wire_limits(sb_G_min, sb_G, sb_G_max, cb_G)
+    _wire_limits(sb_A_min, sb_A, sb_A_max, cb_A)
 
     lab_E = _add_param_row(grid, 2, f"Energy_{i}", sb_E, sb_E_min, sb_E_max, cb_E)
     lab_H = _add_param_row(grid, 3, f"Height_{i}", sb_H, sb_H_min, sb_H_max, cb_H)

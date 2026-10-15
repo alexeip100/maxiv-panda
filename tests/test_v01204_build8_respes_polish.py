@@ -34,5 +34,5 @@ def test_map_coordinates_recovered_from_main_axis_pixel_position():
 
 def test_subtraction_map_is_zero_centered_diverging():
     plot = (ROOT / 'ui_map_plot_mixin.py').read_text(encoding='utf8')
-    assert 'image_kw = {"vmin": -amplitude, "vmax": amplitude}' in plot
-    assert 'cmap = "RdBu_r"' in plot
+    assert 'image_kw = {"vmin": -limit, "vmax": limit}' in plot
+    assert 'cmap = str(difference_cmap or "RdBu_r")' in plot

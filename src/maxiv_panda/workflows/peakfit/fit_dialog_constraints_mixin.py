@@ -104,6 +104,11 @@ class FitDialogConstraintsMixin:
                     else:
                         new_val = src_val * float(tie.get("value", 1.0))
                     sb = w[prefix]
+                    # Tied parameters use the source value even when this
+                    # peak retains narrower, disabled bounds from an old fit.
+                    hard_min = float(w[f"{prefix}_min"].property("hard_min") or w[f"{prefix}_min"].minimum())
+                    hard_max = float(w[f"{prefix}_max"].property("hard_max") or w[f"{prefix}_max"].maximum())
+                    sb.setRange(hard_min, hard_max)
                     sb.blockSignals(True)
                     sb.setValue(float(new_val))
                     sb.blockSignals(False)

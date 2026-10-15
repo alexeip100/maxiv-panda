@@ -4,7 +4,7 @@ from PyQt6.QtCore import Qt, QLocale
 from PyQt6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QPushButton, QRadioButton, QSpinBox,
-    QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
+    QSizePolicy, QSlider, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 from maxiv_panda.silent_message_box import SilentMessageBox as QMessageBox
 
@@ -306,6 +306,8 @@ class UiProcessedDataMixin(UiMapControlsMixin):
         self._respes_preedge_enabled = False
         self._respes_preedge_center = None
         self._respes_preedge_width = None
+        self._respes_difference_cmap = "RdBu_r"
+        self._respes_difference_contrast = 100
 
         # Lines/ROI traces are snapshotted into the generic comparison window.
         # Export is intentionally centralized there rather than duplicated here.
@@ -479,7 +481,16 @@ class UiProcessedDataMixin(UiMapControlsMixin):
             try:
                 if button is not None and button.isChecked():
                     file_name, region_name = key
-                    self._choose_region_cmap(file_name, region_name)
+                    if getattr(self, "_respes_preedge_enabled", False):
+                        from .colormap_dialog import open_colormap
+
+                        def _apply(choice: str) -> None:
+                            self._respes_difference_cmap = str(choice)
+                            self._refresh_subtraction_color_display()
+
+                        open_colormap(self, str(getattr(self, "_respes_difference_cmap", "RdBu_r")), _apply)
+                    else:
+                        self._choose_region_cmap(file_name, region_name)
                     return
             except Exception:
                 continue
