@@ -536,18 +536,23 @@ The top row shows **Fit range: Full** or **Fit range: Custom** with an **Edit** 
 **Start fit** runs the nonlinear fit. After the fit, the result table and diagnostic messages indicate whether the fit converged and whether any parameters approached bounds. **Undo fit** restores the complete fit state from immediately before the most recent fit attempt, including peak/background settings, fit range, displayed model, and previous fit-result state.
 
 ## Save and Load fit configuration
-The single-fit window uses compact **Save** and **Load** menus.
+The single-curve fitting window has **Save** and **Load** menus. In-memory snapshots are for experimenting with a setup; file saves preserve a reusable configuration and, when available, the scientific results of a completed fit.
 
 **Save** contains:
-- **Save config snapshot** - keep the current fit configuration temporarily in memory; curves are not stored.
-- **Save config to file...** - save the fit configuration to a reusable JSON file; curves are not stored.
-- **Save config + curves...** - export the fit configuration together with calculated fit curves. This command becomes available after a fit result exists.
+- **Save config snapshot** – store the **current** peak/background configuration temporarily in memory, including any manual edits. No file or fitted curves are saved, and no warning is shown.
+- **Save config to file...** – save a reloadable `.fit.json` file containing the chosen peak model, parameter values, bounds and constraints, SO-doublet definitions, background and fit range. If a successful fit is being saved, include available fitted-parameter uncertainties and fit-quality information.
+- **Save config + curves...** – use the **same JSON format and suggested `.fit.json` filename** as **Save config to file...**, with an additional option to export numerical curves to CSV. This command is enabled after a fit has been completed. Its export dialog lets you select the JSON and CSV outputs.
+
+If the setup has been **manually changed since the last successful fit**, either file-based Save command asks which version to save:
+- **Last successful fit** – preserve the fitted parameter values, constraints, background, range, and available uncertainties/statistics from that completed fit; later manual changes are disregarded.
+- **Current configuration (unfitted)** – preserve the currently edited setup **without** the previous fit's uncertainties or quality statistics. If CSV is also selected, its calculated curves correspond to this current configuration.
+- **Cancel** – save nothing.
+
+When no successful fit exists, **Save config to file...** stores the current setup as unfitted. If the current setup still matches the last successful fit, file saving proceeds without a choice dialog. The JSON is a configuration and result record, **not** a copy of the measured data; the CSV export can additionally contain energy, measured data, total fit, background, residual, and peak components.
 
 **Load** contains:
-- **Load config snapshot** - restore the configuration previously saved in memory.
-- **Load config from file...** - load a configuration from JSON. Calculated curves are regenerated automatically from the loaded configuration.
-
-The configuration includes the peak model and parameters, constraints, background settings, and related fit setup. The curves-inclusive export writes fit information as JSON and numerical curves such as energy, data, total fit, background, residual, and peak components as CSV.
+- **Load config snapshot** – restore the configuration previously saved in memory, including manual edits; this behavior is unchanged.
+- **Load config from file...** – restore fitting configuration from the saved JSON, regenerating model curves from the parameters. It also accepts older PANDA single-fit result JSON files. Saved optimizer diagnostics are included for documentation, but loading the file does **not** reconstruct the historical optimizer-result object or automatically restore every fit-results display.
 
 
 # Sequence fitting and analysis

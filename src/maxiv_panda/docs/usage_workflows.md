@@ -451,51 +451,35 @@ If a parameter hits a bound, consider whether:
 
 
 ## Save and reuse a fit configuration
-Use fit-configuration save/load when you want to reuse the model itself rather than export final fitted curves.
+The single-curve **Save** menu offers three different actions:
 
-- **Save config snapshot** stores the current setup temporarily in memory for the open fitting session.
-- **Load config snapshot** restores that in-memory setup.
-- **Save config to file...** writes the model to JSON so it can be reused later.
-- **Load config from file...** restores a JSON setup and regenerates the calculated component/sum/background curves from the loaded parameters.
+- **Save config snapshot** saves the **current** setup temporarily in memory, even if parameters were manually edited after a fit. **Load config snapshot** restores it. This workflow is unchanged and does not display the file-save warning.
+- **Save config to file...** writes a reloadable `.fit.json` file with the fitting model, peaks, SO doublets, parameter values/bounds and constraints, background and fit range; it also preserves available uncertainties and fit-quality information when saving a completed fit.
+- **Save config + curves...** writes exactly the **same JSON structure** and proposes the **same `.fit.json` filename**, with an optional CSV export of fitted or calculated curves. This option becomes available after fitting.
 
-The saved configuration includes peaks, explicit SO-doublet definitions, parameter bounds and Free/Fixed/Tied choices, background settings, fit range, and related fit setup. It is therefore useful for transferring a tested model to another similar spectrum before making spectrum-specific adjustments.
+After a successful fit, if you have changed parameters, constraints, background or other fit settings **without refitting**, either file-based Save command asks whether to save **Last successful fit** or **Current configuration (unfitted)**. Choose the former to keep the original fitted result with its uncertainties/statistics; choose the latter to keep your new setup **without stale fit statistics**. **Cancel** makes no file. When no successful fit exists, the current setup is saved as unfitted without a warning; an unchanged successful fit is saved directly.
 
-This is different from **Save config + curves...**, which is a result export intended to preserve both the configuration and numerical fit curves after a successful fit.
+Use **Load config from file...** to reload either JSON file, or an older PANDA single-fit result JSON, and regenerate the model from the stored parameters. It restores the working setup, **not** the historical optimizer-result object or its full result-table display.
 
-**Controls used (What is what?):** *Save config snapshot*, *Load config snapshot*, *Save config to file...*, *Load config from file...*
+**Controls used (What is what?):** *Save config snapshot*, *Load config snapshot*, *Save config to file...*, *Save config + curves...*, *Load config from file...*
 
 
 ## Export a single-curve fit
-Once a single fit is satisfactory, use **Save > Save config + curves...**.
+After completing a fit, choose **Save > Save config + curves...** to preserve a reloadable JSON record and export numerical curves.
 
-1. Run a successful single-curve fit.
-2. Choose **Save > Save config + curves...**.
-3. Choose an output folder.
-4. Check the suggested base name.
-5. Confirm which files will be created.
-6. Export.
+1. Run a successful single-curve fit and review the result.
+2. Choose **Save > Save config + curves...**. If you changed the setup since fitting, choose **Last successful fit** to export that completed result, or **Current configuration (unfitted)** to export your edits and corresponding calculated curves.
+3. Choose the destination folder and review the suggested base filename.
+4. In the export dialog, select the JSON and CSV outputs you want and confirm **Export**.
 
-The export can create two files:
+The available outputs are:
 
-- `*_parameters.json` - full structured fit information, including model, parameters, constraints, bounds, metadata, and fit quality;
-- `*_curves.csv` - numerical curves for external plotting and analysis.
+- `<suggested_name>.fit.json` – the same reloadable file as **Save config to file...**, containing the setup and, when the completed fit is selected, available uncertainties and fit quality;
+- `<suggested_name>_curves.csv` – numerical energy, measured data, total fit, background, peaks sum, residual and individual peak components, suitable for Igor Pro, Origin, Excel, Python or MATLAB.
 
-The CSV is intended to be easy to open in Igor Pro, Origin, Excel, Python, MATLAB, and similar programs. It contains columns such as:
+The two file-saving commands propose exactly the same JSON filename for a given spectrum. A JSON file restored with **Load config from file...** restores the configuration, but not the historical optimizer-result object. The in-memory snapshot Save/Load commands remain unchanged.
 
-- energy;
-- data;
-- total fit;
-- background;
-- peaks sum;
-- residual;
-- individual peak components.
-
-**Controls used (What is what?):** *Save > Save config + curves...*, *JSON parameters file*, *CSV curves file*
-
-
-
-# Fit a sequence
-Prepare, initialize, run, stop, and refine multi-pass fits in chronological order.
+**Controls used (What is what?):** *Save > Save config + curves...*, *Save config to file...*, *Load config from file...*, *JSON parameters file*, *CSV curves file*
 
 
 ## Start a batch fit from a good single fit

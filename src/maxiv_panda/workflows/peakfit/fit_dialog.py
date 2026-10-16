@@ -698,6 +698,9 @@ class FitCoreLevelDialog(
         self.right_tabs.addTab(fitres_tab, "Fit results")
         self._last_fit_bound_hits = set()
         self._last_fit_result = None
+        self._last_successful_fit_setup = None
+        self._last_successful_fit_info = None
+        self._last_successful_fit_curves = None
         self._last_fit_data = None
         self._last_fit_bg_type = None
         self._last_fit_status = ""

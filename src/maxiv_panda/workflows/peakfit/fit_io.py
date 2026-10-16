@@ -9,6 +9,7 @@ from typing import Any, Dict, Tuple
 from maxiv_panda.version import __version__
 from .state_models import FitSetupState, StateValidationError
 from . import fit_schema
+from .fit_result_import import RESULT_FORMAT, convert_result_to_setup
 
 FORMAT_NAME = fit_schema.FORMAT_NAME
 FORMAT_VERSION = fit_schema.CURRENT_FORMAT_VERSION
@@ -34,7 +35,7 @@ def _clean_for_json(obj: Any) -> Any:
     return str(obj)
 
 
-def save_fit_setup_json(path: str | Path, setup: Dict[str, Any], metadata: Dict[str, Any] | None = None) -> None:
+def save_fit_setup_json(path: str | Path, setup: Dict[str, Any], metadata: Dict[str, Any] | None = None, *, fit_result: Dict[str, Any] | None = None) -> None:
     """Save a complete peak-fit setup to a human-readable JSON file."""
     payload = {
         "format": FORMAT_NAME,
@@ -45,6 +46,8 @@ def save_fit_setup_json(path: str | Path, setup: Dict[str, Any], metadata: Dict[
         "metadata": _clean_for_json(metadata or {}),
         "fit_setup": _clean_for_json(FitSetupState.from_mapping(setup or {}).to_mapping()),
     }
+    if fit_result is not None:
+        payload["fit_result"] = _clean_for_json(fit_result)
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -59,6 +62,9 @@ def load_fit_setup_json(path: str | Path) -> Tuple[Dict[str, Any], Dict[str, Any
     p = Path(path)
     data = json.loads(p.read_text(encoding="utf-8"))
     try:
+        if isinstance(data, dict) and data.get("format") == RESULT_FORMAT:
+            setup, metadata = convert_result_to_setup(data)
+            return FitSetupState.from_mapping(setup).to_mapping(), metadata
         payload = fit_schema.canonicalize_fit_setup_payload(data)
         normalized_setup = FitSetupState.from_mapping(payload["fit_setup"]).to_mapping()
     except (fit_schema.FitSetupSchemaError, StateValidationError) as exc:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from copy import deepcopy
+from types import SimpleNamespace
 from typing import Any, Dict
 
 from PyQt6.QtWidgets import QFileDialog
@@ -108,24 +110,55 @@ class FitDialogIOMixin:
             setattr(self._mw, "_last_fit_io_dir", str(p))
         except Exception:
             pass
+    def _resolve_file_save_state(self):
+        """Return (setup, result metadata, selection) without mixing stale fit statistics."""
+        current = self._capture_fit_setup_template()
+        fitted = getattr(self, "_last_successful_fit_setup", None)
+        result_info = getattr(self, "_last_successful_fit_info", None)
+        if not isinstance(fitted, dict) or not isinstance(result_info, dict):
+            return current, None, "current"
+        if current == fitted:
+            return deepcopy(fitted), deepcopy(result_info), "fitted"
+        box = QMessageBox(self)
+        box.setWindowTitle("Fitting parameters changed")
+        box.setText("The fitting configuration has been modified since the last successful fit. What would you like to save?")
+        old_button = box.addButton("Last successful fit", QMessageBox.ButtonRole.AcceptRole)
+        current_button = box.addButton("Current configuration (unfitted)", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(old_button)
+        box.exec()
+        selected = box.clickedButton()
+        if selected is old_button:
+            return deepcopy(fitted), deepcopy(result_info), "fitted"
+        if selected is current_button:
+            return current, None, "current"
+        return None, None, "cancel"
+
+    def _make_current_curve_result(self):
+        """Construct evaluated parameters for the current configuration (including ties)."""
+        params = self._build_lmfit_parameters(str(self.cb_bg_type.currentText()))
+        return SimpleNamespace(params=params)
+
     def _on_export_fit_results(self) -> None:
         fit_export.export_single_fit_results(self)
     def _on_save_fit_setup_file(self) -> None:
-        setup = self._capture_fit_setup_template()
+        setup, result_info, choice = self._resolve_file_save_state()
+        if choice == "cancel":
+            return
         metadata = self._current_fit_io_metadata()
         start_path = fit_io.suggest_fit_setup_path(self._fit_io_default_dir(), metadata)
         path, _flt = QFileDialog.getSaveFileName(
             self,
             "Save fit setup",
             str(start_path),
-            "FlexPES fit setup (*.fit.json);;JSON files (*.json);;All files (*.*)",
+            "PANDA fit setup (*.fit.json);;JSON files (*.json);;All files (*.*)",
         )
         if not path:
             return
         if not str(path).lower().endswith(".json"):
             path = f"{path}.fit.json"
         try:
-            fit_io.save_fit_setup_json(path, setup, metadata=metadata)
+            fit_io.save_fit_setup_json(path, setup, metadata=metadata, fit_result=result_info)
             self._remember_fit_io_dir(path)
         except Exception as exc:
             QMessageBox.critical(self, "Save failed", f"Could not save fit setup file:\n\n{exc}")

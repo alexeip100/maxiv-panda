@@ -349,12 +349,12 @@ class SingleFitExportDialog(QDialog):
         gb_lay = QVBoxLayout(gb)
         self.chk_json = QCheckBox("", gb)
         self.chk_json.setChecked(True)
-        self.chk_json.setToolTip("Complete fit parameters, constraints, bounds, metadata, and fit-quality values.")
+        self.chk_json.setToolTip("Reloadable fit configuration (identical to Save config to file).")
         self.chk_csv = QCheckBox("", gb)
         self.chk_csv.setChecked(True)
         self.chk_csv.setToolTip("Energy, data, total fit, background, residual, and peak component curves.")
         gb_lay.addWidget(self.chk_json)
-        gb_lay.addWidget(QLabel("    Fit parameters, constraints, bounds, quality metrics, metadata", gb))
+        gb_lay.addWidget(QLabel("    Reloadable fit configuration (same JSON as Save config to file)", gb))
         gb_lay.addWidget(self.chk_csv)
         gb_lay.addWidget(QLabel("    Energy, data, total fit, background, residual, peak components", gb))
         lay.addWidget(gb)
@@ -399,7 +399,7 @@ class SingleFitExportDialog(QDialog):
         base = self._base()
         paths: Dict[str, Path] = {}
         if self.chk_json.isChecked():
-            paths["json"] = folder / f"{base}_parameters.json"
+            paths["json"] = folder / f"{base}.fit.json"
         if self.chk_csv.isChecked():
             paths["csv"] = folder / f"{base}_curves.csv"
         return paths
@@ -445,8 +445,14 @@ def export_single_fit_results(dialog: Any) -> None:
     if result is None or fit_data is None or not bg_type:
         QMessageBox.warning(dialog, "No fit results", "Run a successful fit before exporting fit results.")
         return
+    if hasattr(dialog, "_resolve_file_save_state"):
+        setup, result_info, choice = dialog._resolve_file_save_state()
+    else:  # Compatibility with simple export adapters.
+        setup, result_info, choice = dialog._capture_fit_setup_template(), None, "current"
+    if choice == "cancel":
+        return
     metadata = dialog._current_fit_io_metadata() if hasattr(dialog, "_current_fit_io_metadata") else {}
-    default_base = suggest_single_fit_export_basename(metadata)
+    default_base = fit_io.suggest_fit_setup_filename(metadata).removesuffix(".fit.json")
     try:
         default_dir = dialog._fit_io_default_dir()
     except Exception:
@@ -457,20 +463,26 @@ def export_single_fit_results(dialog: Any) -> None:
     paths = dlg.selected_paths()
     written: list[Path] = []
     try:
-        param_payload = build_single_fit_parameter_payload(
-            dialog,
-            result,
-            fit_data,
-            str(bg_type),
-            status=str(getattr(dialog, "_last_fit_status", "") or ""),
-        )
+        # Both Save commands must produce the same reloadable fit-setup JSON.
+        # The curves export adds CSV only; it does not define another JSON schema.
         if "json" in paths:
-            write_single_fit_parameters_json(paths["json"], param_payload)
+            fit_io.save_fit_setup_json(paths["json"], setup, metadata=metadata, fit_result=result_info)
             written.append(paths["json"])
         if "csv" in paths:
-            headers, rows, curve_meta = build_single_fit_curves(dialog, result, fit_data, str(bg_type))
-            csv_meta = dict(param_payload)
-            csv_meta["curve_export"] = curve_meta
+            if choice == "current":
+                curves_result = dialog._make_current_curve_result()
+                fit_data, error = dialog._collect_fit_curve_data()
+                if fit_data is None:
+                    raise ValueError(error or "Current spectrum is unavailable for CSV export.")
+                curves_bg_type = str(setup.get("bg_state", {}).get("bg_type") or bg_type)
+            else:
+                curves_result = result
+                curves_bg_type = str(bg_type)
+            if choice == "fitted" and getattr(dialog, "_last_successful_fit_curves", None) is not None:
+                headers, rows, curve_meta = dialog._last_successful_fit_curves
+            else:
+                headers, rows, curve_meta = build_single_fit_curves(dialog, curves_result, fit_data, curves_bg_type)
+            csv_meta = {"source": metadata, "curve_export": curve_meta}
             if "json" in paths:
                 csv_meta["parameters_file"] = paths["json"].name
             write_single_fit_curves_csv(

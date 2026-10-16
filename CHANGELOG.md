@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.5.post1 - 2026-10-16
+
+### Added
+- Preserve available fit uncertainties and quality statistics in reloadable JSON, and offer a choice between the last successful fit and manually modified, unfitted settings when they differ.
+
+### Fixed
+- Use the same JSON format and suggested filename for both file-based Save commands; the curves option additionally exports CSV.
+- Allow Load to read earlier PANDA single-fit result JSON files as fitting configurations.
+
 ## 0.12.5 - 2026-10-15
 
 ### Added

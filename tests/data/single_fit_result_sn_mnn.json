@@ -1,0 +1,490 @@
+{
+  "format": "flexpes_pes_single_fit_result",
+  "format_version": 1,
+  "software": {
+    "name": "maxiv-panda",
+    "version": "0.12.5"
+  },
+  "exported": "2026-10-16T10:55:23",
+  "source": {
+    "curve_id": "XPS_0024XPS_024.ibw:::Sn_MNN_AES_520eV#1:::Trace",
+    "curve_label": "Trace",
+    "display_label": "0024: Sn_MNN_AES_520eV",
+    "anchor_label": "",
+    "anchor_range": "",
+    "source_file": "XPS_0024XPS_024.ibw",
+    "region": "Sn_MNN_AES_520eV#1",
+    "source_key": "XPS_0024XPS_024.ibw:::Sn_MNN_AES_520eV#1:::Trace",
+    "payload_title": "Sn_MNN_AES_520eV",
+    "energy_scale": "Kinetic",
+    "xlabel": "Kinetic Energy [eV]",
+    "ylabel": "Intensity"
+  },
+  "fit_model": {
+    "fit_range_eV": [
+      411.79168749279137,
+      440.6432388788566
+    ],
+    "background": {
+      "type": "parabolic",
+      "parameters": {
+        "b0": {
+          "value": 114634.64140657561,
+          "stderr": 1867.167872533711,
+          "min": -32031.90380859375,
+          "max": 409943.17626953125,
+          "vary": true,
+          "brute_step": null,
+          "init_value": 124192.398678
+        },
+        "b1": {
+          "value": -2474.0298620520452,
+          "stderr": 46.34733640522553,
+          "min": -38365.89236788407,
+          "max": 38365.89236788407,
+          "vary": true,
+          "brute_step": null,
+          "init_value": -3090.539635
+        },
+        "b2": {
+          "value": -7.639362756336584,
+          "stderr": 8.186737374370654,
+          "min": -1332.1490405512272,
+          "max": 1332.1490405512272,
+          "vary": true,
+          "brute_step": null,
+          "init_value": -42.413435
+        }
+      }
+    },
+    "peaks": [
+      {
+        "index": 1,
+        "label": "P1",
+        "model": "Voigt/DS-Voigt",
+        "parameters": {
+          "Energy": {
+            "value": 419.57995742057665,
+            "stderr": 0.10917766281984455,
+            "min": 410.0,
+            "max": 450.0,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 419.561,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "Height": {
+            "value": 7856.936611531041,
+            "stderr": 767.2570924013263,
+            "min": 0.0,
+            "max": 299449.406,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 11978.234,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "LFWHM": {
+            "value": 0.1968281957332297,
+            "stderr": 0.18727402658543624,
+            "min": 0.05,
+            "max": 1.5,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 1.499,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "GFWHM": {
+            "value": 2.5406204711311684,
+            "stderr": 0.10019739462233576,
+            "min": 0.05,
+            "max": 3.0,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 1.803,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "Alpha": {
+            "value": 0.11284140047911898,
+            "stderr": 0.007639042676177881,
+            "min": 0.0,
+            "max": 0.2,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 0.0,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "Area": {
+            "value": 27647.783607451463,
+            "derived": true,
+            "definition": "Numerical integral of the fitted peak component over the fitted energy interval."
+          }
+        }
+      },
+      {
+        "index": 2,
+        "label": "P2",
+        "model": "Voigt/DS-Voigt",
+        "parameters": {
+          "Energy": {
+            "value": 424.361635452603,
+            "stderr": 0.021094273947476608,
+            "min": 410.0,
+            "max": 450.0,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 424.061,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "Height": {
+            "value": 115185.10390583775,
+            "stderr": 1175.0330276591787,
+            "min": 0.0,
+            "max": 299449.406,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 108140.83,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "LFWHM": {
+            "value": 0.1968281957332297,
+            "stderr": 0.18727402667296036,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_L)",
+            "brute_step": null,
+            "init_value": 1.499,
+            "mode": "Tied",
+            "constraint": "Tied to LFWHM_1"
+          },
+          "GFWHM": {
+            "value": 2.5406204711311684,
+            "stderr": 0.1001973948146477,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_G)",
+            "brute_step": null,
+            "init_value": 1.803,
+            "mode": "Tied",
+            "constraint": "Tied to GFWHM_1"
+          },
+          "Alpha": {
+            "value": 0.11284140047911898,
+            "stderr": 0.007639042665260278,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_A)",
+            "brute_step": null,
+            "init_value": 0.0,
+            "mode": "Tied",
+            "constraint": "Tied to Alpha_1"
+          },
+          "Area": {
+            "value": 428845.8743193624,
+            "derived": true,
+            "definition": "Numerical integral of the fitted peak component over the fitted energy interval."
+          }
+        }
+      },
+      {
+        "index": 3,
+        "label": "P3",
+        "model": "Voigt/DS-Voigt",
+        "parameters": {
+          "Energy": {
+            "value": 426.603559303954,
+            "stderr": 0.03538402614163352,
+            "min": 410.0,
+            "max": 450.0,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 426.031,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "Height": {
+            "value": 136526.10043237958,
+            "stderr": 1656.4771754220515,
+            "min": 0.0,
+            "max": 299449.406,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 111501.342,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "LFWHM": {
+            "value": 0.1968281957332297,
+            "stderr": 0.18727402667296036,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_L)",
+            "brute_step": null,
+            "init_value": 1.499,
+            "mode": "Tied",
+            "constraint": "Tied to LFWHM_1"
+          },
+          "GFWHM": {
+            "value": 2.5406204711311684,
+            "stderr": 0.1001973948146477,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_G)",
+            "brute_step": null,
+            "init_value": 1.803,
+            "mode": "Tied",
+            "constraint": "Tied to GFWHM_1"
+          },
+          "Alpha": {
+            "value": 0.11284140047911898,
+            "stderr": 0.007639042665260278,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_A)",
+            "brute_step": null,
+            "init_value": 0.0,
+            "mode": "Tied",
+            "constraint": "Tied to Alpha_1"
+          },
+          "Area": {
+            "value": 517550.2031296041,
+            "derived": true,
+            "definition": "Numerical integral of the fitted peak component over the fitted energy interval."
+          }
+        }
+      },
+      {
+        "index": 4,
+        "label": "P4",
+        "model": "Voigt/DS-Voigt",
+        "parameters": {
+          "Energy": {
+            "value": 428.50379057510395,
+            "stderr": 0.07839946265069284,
+            "min": 410.0,
+            "max": 450.0,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 427.588,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "Height": {
+            "value": 47591.376460327665,
+            "stderr": 1980.862501189575,
+            "min": 0.0,
+            "max": 299449.406,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 69349.391,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "LFWHM": {
+            "value": 0.1968281957332297,
+            "stderr": 0.18727402667296036,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_L)",
+            "brute_step": null,
+            "init_value": 1.499,
+            "mode": "Tied",
+            "constraint": "Tied to LFWHM_1"
+          },
+          "GFWHM": {
+            "value": 2.5406204711311684,
+            "stderr": 0.1001973948146477,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_G)",
+            "brute_step": null,
+            "init_value": 1.803,
+            "mode": "Tied",
+            "constraint": "Tied to GFWHM_1"
+          },
+          "Alpha": {
+            "value": 0.11284140047911898,
+            "stderr": 0.007639042665260278,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_A)",
+            "brute_step": null,
+            "init_value": 0.0,
+            "mode": "Tied",
+            "constraint": "Tied to Alpha_1"
+          },
+          "Area": {
+            "value": 182885.0831220881,
+            "derived": true,
+            "definition": "Numerical integral of the fitted peak component over the fitted energy interval."
+          }
+        }
+      },
+      {
+        "index": 5,
+        "label": "P5",
+        "model": "Voigt/DS-Voigt",
+        "parameters": {
+          "Energy": {
+            "value": 432.67251945914484,
+            "stderr": 0.020545159461857594,
+            "min": 410.0,
+            "max": 450.0,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 432.593,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "Height": {
+            "value": 72587.66880621725,
+            "stderr": 1236.2496352226342,
+            "min": 0.0,
+            "max": 299449.406,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 64755.378,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "LFWHM": {
+            "value": 0.1968281957332297,
+            "stderr": 0.18727402667296036,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_L)",
+            "brute_step": null,
+            "init_value": 1.499,
+            "mode": "Tied",
+            "constraint": "Tied to LFWHM_1"
+          },
+          "GFWHM": {
+            "value": 2.5406204711311684,
+            "stderr": 0.1001973948146477,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_G)",
+            "brute_step": null,
+            "init_value": 1.803,
+            "mode": "Tied",
+            "constraint": "Tied to GFWHM_1"
+          },
+          "Alpha": {
+            "value": 0.11284140047911898,
+            "stderr": 0.007639042665260278,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_A)",
+            "brute_step": null,
+            "init_value": 0.0,
+            "mode": "Tied",
+            "constraint": "Tied to Alpha_1"
+          },
+          "Area": {
+            "value": 285982.7819398046,
+            "derived": true,
+            "definition": "Numerical integral of the fitted peak component over the fitted energy interval."
+          }
+        }
+      },
+      {
+        "index": 6,
+        "label": "P6",
+        "model": "Voigt/DS-Voigt",
+        "parameters": {
+          "Energy": {
+            "value": 434.7054290143754,
+            "stderr": 0.04644094888940176,
+            "min": 410.0,
+            "max": 450.0,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 434.321,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "Height": {
+            "value": 36362.71205274374,
+            "stderr": 1204.0033624336895,
+            "min": 0.0,
+            "max": 299449.406,
+            "vary": true,
+            "brute_step": null,
+            "init_value": 29383.478,
+            "mode": "Free",
+            "constraint": "Free"
+          },
+          "LFWHM": {
+            "value": 0.1968281957332297,
+            "stderr": 0.18727402667296036,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_L)",
+            "brute_step": null,
+            "init_value": 1.499,
+            "mode": "Tied",
+            "constraint": "Tied to LFWHM_1"
+          },
+          "GFWHM": {
+            "value": 2.5406204711311684,
+            "stderr": 0.1001973948146477,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_G)",
+            "brute_step": null,
+            "init_value": 1.803,
+            "mode": "Tied",
+            "constraint": "Tied to GFWHM_1"
+          },
+          "Alpha": {
+            "value": 0.11284140047911898,
+            "stderr": 0.007639042665260278,
+            "min": null,
+            "max": null,
+            "vary": false,
+            "expr": "((1)*p1_A)",
+            "brute_step": null,
+            "init_value": 0.0,
+            "mode": "Tied",
+            "constraint": "Tied to Alpha_1"
+          },
+          "Area": {
+            "value": 144563.16818913925,
+            "derived": true,
+            "definition": "Numerical integral of the fitted peak component over the fitted energy interval."
+          }
+        }
+      }
+    ]
+  },
+  "fit_quality": {
+    "status": "Converged",
+    "success": true,
+    "message": "`ftol` termination condition is satisfied.",
+    "fit_evaluations": 513,
+    "rss": 617220380.5620513,
+    "rms_residual": 1461.4070820220697,
+    "reduced_chi_square_poisson_estimate": 13.059069010967455,
+    "parameters_near_or_at_bounds": []
+  }
+}

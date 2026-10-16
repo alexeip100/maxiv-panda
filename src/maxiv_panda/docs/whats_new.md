@@ -1,5 +1,13 @@
 # What’s new in PANDA
 
+## PANDA 0.12.5.post1
+
+### Added
+- **Richer fit JSON:** preserve available fitted-parameter uncertainties and fit-quality information alongside the reloadable setup. If the setup was edited after fitting, choose between the last successful fit and the current unfitted configuration.
+
+### Fixed
+- **Consistent Save/Load:** both file-based Save commands produce the same reloadable JSON and suggest the same filename; the curves command also offers CSV export. Load also accepts older PANDA single-fit result JSON files.
+
 ## PANDA 0.12.5
 
 ### Added

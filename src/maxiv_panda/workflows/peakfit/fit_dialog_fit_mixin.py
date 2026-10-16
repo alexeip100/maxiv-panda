@@ -297,6 +297,18 @@ class FitDialogFitMixin:
             self._last_fit_data = fit_data
             self._last_fit_bg_type = bg_type
             self._last_fit_status = "Converged with warnings" if outcome == "warning" else "Converged"
+            # Capture the complete committed fit before any subsequent manual edits.
+            from copy import deepcopy
+            from . import fit_export
+            self._last_successful_fit_setup = deepcopy(self._capture_fit_setup_template())
+            self._last_successful_fit_info = fit_export.build_single_fit_parameter_payload(
+                self, result, fit_data, bg_type, status=self._last_fit_status
+            )
+            # Freeze exported curves while the completed fit model is still active.
+            # Subsequent edits must not change the CSV of the last successful fit.
+            self._last_successful_fit_curves = fit_export.build_single_fit_curves(
+                self, result, fit_data, bg_type
+            )
             try:
                 self.act_save_config_curves.setEnabled(True)
             except Exception:
