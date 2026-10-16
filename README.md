@@ -52,11 +52,11 @@ Then choose **one** installation method.
 1. Open the PANDA repository on GitHub.
 2. Open **Releases** and choose the **Latest** release.
 3. Scroll to the **bottom of the release page** and expand **Assets** if necessary.
-4. Download the file ending in **`.whl`**. The filename shown below is for version 0.12.5; use the wheel name of the version you downloaded.
+4. Download the file ending in **`.whl`**. The filename shown below is for version 0.12.5.post1; use the wheel name of the version you downloaded.
 5. Open a terminal in the folder containing the downloaded wheel and install it:
 
 ```bash
-python -m pip install --upgrade maxiv_panda-0.12.5-py3-none-any.whl
+python -m pip install --upgrade maxiv_panda-0.12.5.post1-py3-none-any.whl
 ```
 
 ### Install or upgrade directly from GitHub
@@ -64,7 +64,7 @@ python -m pip install --upgrade maxiv_panda-0.12.5-py3-none-any.whl
 To install the latest published PANDA release directly from GitHub, including any new dependencies, run:
 
 ```bash
-python -m pip install --upgrade "maxiv-panda @ git+https://github.com/alexeip100/maxiv-panda.git@v0.12.5"
+python -m pip install --upgrade "maxiv-panda @ git+https://github.com/alexeip100/maxiv-panda.git@v0.12.5.post1"
 ```
 
 The GitHub release tag must exist before this command can be used. Both a fresh installation and an upgrade resolve PANDA's required **`PyQt6-WebEngine`** and **`markdown`** packages automatically. Do **not** use `--no-deps` when you want pip to install newly required dependencies.
